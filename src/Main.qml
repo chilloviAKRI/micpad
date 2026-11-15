@@ -455,8 +455,6 @@ ApplicationWindow {
                     objectName: "dialogHeaderCloseButton"
                     visible: popup.closeInHeader
                     Layout.alignment: Qt.AlignVCenter
-                    padding: window.dp(12); topPadding: window.dp(8); bottomPadding: window.dp(8)
-                    implicitHeight: Math.max(window.dp(40),textMetrics.height+window.dp(22))
                     text: qsTr("Close"); keyHint: "Esc"
                     onClicked: popup.reject()
                 }
@@ -719,13 +717,8 @@ ApplicationWindow {
         PadMenuItem { text: qsTr("Rename"); enabled: window.hasSelection; onTriggered: window.renameSelected() }
         PadMenuItem { text: qsTr("Remove from library"); enabled: window.hasSelection; onTriggered: backend.remove(window.selected) }
         PadMenuSeparator {}
-        PadMenuItem { text: qsTr("File names"); checkable: true; checked: window.showFileNames; onTriggered: window.showFileNames = !window.showFileNames }
         PadMenuItem { text: qsTr("Preferences…"); onTriggered: preferences.open() }
         PadMenuItem { text: qsTr("Keyboard shortcuts"); onTriggered: help.open() }
-        PadMenuSeparator {}
-        PadMenuItem { text: qsTr("Language"); enabled: false }
-        PadMenuItem { objectName: "englishLanguageItem"; text: "English"; checkable: true; checked: translator.language.split('-')[0] === "en"; onTriggered: translator.selectLanguage("en") }
-        PadMenuItem { objectName: "russianLanguageItem"; text: "Русский"; checkable: true; checked: translator.language.split('-')[0] === "ru"; onTriggered: translator.selectLanguage("ru") }
         PadMenuSeparator {}
         PadMenuItem { text: qsTr("Exit"); onTriggered: Qt.quit() }
     }
@@ -755,6 +748,17 @@ ApplicationWindow {
             id: preferencesFields
             width: preferencesScroll.availableWidth
             spacing: window.dp(12)
+            Label { text: qsTr("Language"); color: window.mutedInk; font: window.monoFont }
+            PadComboBox {
+                objectName: "languageComboBox"
+                Layout.fillWidth: true
+                model: [{code: "en", label: "English"}, {code: "ru", label: "Русский"}]
+                textRole: "label"; valueRole: "code"
+                currentIndex: window.modelIndex(model,"code",translator.language.split('-')[0])
+                onActivated: translator.selectLanguage(currentValue)
+                Accessible.name: qsTr("Language")
+            }
+            Rectangle { Layout.fillWidth: true; height: 1; color: window.rule }
             Label { text: qsTr("Appearance"); color: window.mutedInk; font: window.monoFont }
             PadCheckBox {
                 objectName: "omarchySyncCheckBox"
@@ -778,6 +782,13 @@ ApplicationWindow {
                 currentIndex: window.modelIndex(model,"id",theme.preset)
                 onActivated: theme.selectPreset(currentValue)
                 Accessible.name: qsTr("Built-in theme")
+            }
+            PadCheckBox {
+                objectName: "fileNamesCheckBox"
+                Layout.fillWidth: true
+                text: qsTr("File names")
+                checked: window.showFileNames
+                onToggled: window.showFileNames = checked
             }
             Rectangle { Layout.fillWidth: true; height: 1; color: window.rule }
             Label { text: qsTr("Microphone"); color: window.mutedInk; font: window.monoFont }

@@ -304,7 +304,7 @@ private slots:
         QVERIFY(launchOverride.selectLanguage("en"));
         QTest::qWait(120); QCOMPARE(launchOverride.language(), "en");
     }
-    void languageMenuRetranslatesRealControlsAndKeepsPlaybackAndGeometry() {
+    void languagePreferencesRetranslatesRealControlsAndKeepsPlaybackAndGeometry() {
         const bool hadOverride = qEnvironmentVariableIsSet("MICPAD_LANGUAGE");
         const auto previousOverride = qgetenv("MICPAD_LANGUAGE");
         const QLocale previousLocale;
@@ -333,31 +333,38 @@ private slots:
         QTest::qWait(60); window->requestActivate();
         auto add = window->findChild<QQuickItem *>("addSoundButton"); QVERIFY(add);
         auto channel = window->findChild<QQuickItem *>("microphoneChannelLabel"); QVERIFY(channel);
-        auto english = window->findChild<QQuickItem *>("englishLanguageItem"); QVERIFY(english);
-        auto russian = window->findChild<QQuickItem *>("russianLanguageItem"); QVERIFY(russian);
-        auto menuButton = window->findChild<QQuickItem *>("appMenuButton"); QVERIFY(menuButton);
-        auto menu = window->findChild<QObject *>("appMenu"); QVERIFY(menu);
+        auto language = window->findChild<QQuickItem *>("languageComboBox"); QVERIFY(language);
+        auto fileNames = window->findChild<QQuickItem *>("fileNamesCheckBox"); QVERIFY(fileNames);
+        auto preferencesButton = window->findChild<QQuickItem *>("preferencesButton"); QVERIFY(preferencesButton);
+        auto preferences = window->findChild<QObject *>("preferencesDialog"); QVERIFY(preferences);
         QCOMPARE(add->property("text").toString(), "Add sound");
         QCOMPARE(channel->property("text").toString(), "Microphone");
-        QVERIFY(english->property("checked").toBool());
+        QCOMPARE(language->property("currentValue").toString(),"en");
         backend.showTransport("Example sound",false);
         const auto size = window->size();
         QSignalSpy resized(window,&QWindow::heightChanged);
-        QTest::mouseClick(window,Qt::LeftButton,{},menuButton->mapToScene(menuButton->boundingRect().center()).toPoint());
-        QTRY_VERIFY(menu->property("opened").toBool());
-        QTest::mouseClick(window,Qt::LeftButton,{},russian->mapToScene(russian->boundingRect().center()).toPoint());
+        auto click = [window](QQuickItem *item) {
+            QTest::mouseClick(window,Qt::LeftButton,{},item->mapToScene(item->boundingRect().center()).toPoint());
+        };
+        click(preferencesButton); QTRY_VERIFY(preferences->property("opened").toBool());
+        QVERIFY(window->property("fileColumnVisible").toBool());
+        click(fileNames); QVERIFY(!window->property("fileColumnVisible").toBool());
+        click(language); QTest::keyClick(window,Qt::Key_End); QTest::keyClick(window,Qt::Key_Return);
         QTRY_COMPARE(translator.language(), "ru");
-        QTRY_VERIFY(!menu->property("visible").toBool());
+        auto languagePopup = language->property("popup").value<QObject *>(); QVERIFY(languagePopup);
+        QTRY_VERIFY(!languagePopup->property("visible").toBool());
         QCOMPARE(add->property("text").toString(),QString::fromUtf8("Добавить звук"));
         QCOMPARE(channel->property("text").toString(),QString::fromUtf8("Микрофон"));
-        QVERIFY(russian->property("checked").toBool()); QVERIFY(!english->property("checked").toBool());
-        auto preferences = window->findChild<QObject *>("preferencesDialog"); QVERIFY(preferences);
-        QVERIFY(QMetaObject::invokeMethod(preferences,"open"));
-        QTRY_VERIFY(preferences->property("opened").toBool());
+        QCOMPARE(language->property("currentValue").toString(),"ru");
+        QVERIFY(!fileNames->property("checked").toBool());
+        QCOMPARE(fileNames->property("text").toString(),QString::fromUtf8("Имена файлов"));
+        fileNames->forceActiveFocus(); QTest::keyClick(window,Qt::Key_Space);
+        QVERIFY(window->property("fileColumnVisible").toBool());
         QCOMPARE(preferences->property("title").toString(),QString::fromUtf8("Настройки"));
         auto close = preferences->findChild<QQuickItem *>("dialogHeaderCloseButton"); QVERIFY(close);
         QCOMPARE(close->property("text").toString(),QString::fromUtf8("Закрыть"));
-        QVERIFY(translator.selectLanguage("en"));
+        click(language); QTest::keyClick(window,Qt::Key_Home); QTest::keyClick(window,Qt::Key_Return);
+        QTRY_COMPARE(translator.language(),"en");
         QCOMPARE(add->property("text").toString(), "Add sound");
         QCOMPARE(channel->property("text").toString(), "Microphone");
         QCOMPARE(preferences->property("title").toString(), "Preferences");
