@@ -442,15 +442,21 @@ ApplicationWindow {
         Material.roundedScale: theme.radius; Material.elevation: 0
         background: Rectangle { color: window.surface; border.color: window.accent; radius: theme.radius }
         header: Item {
-            implicitHeight: window.headingHeight+window.dp(12)
+            implicitHeight: popup.closeInHeader ? headerRow.implicitHeight+window.dp(24) : window.headingHeight+window.dp(12)
             RowLayout {
+                id: headerRow
                 anchors.fill: parent; anchors.leftMargin: window.dp(16); anchors.rightMargin: window.dp(16)
+                anchors.topMargin: popup.closeInHeader ? window.dp(12) : 0
+                anchors.bottomMargin: popup.closeInHeader ? window.dp(12) : 0
                 Label { text: ">"; color: window.accent; font: window.monoFont }
                 Label { text: popup.title.toLocaleUpperCase(); color: window.ink; font: window.monoBoldFont; Layout.fillWidth: true; elide: Text.ElideRight }
                 KeyCap { visible: !popup.closeInHeader; label: "Esc" }
                 PadButton {
                     objectName: "dialogHeaderCloseButton"
                     visible: popup.closeInHeader
+                    Layout.alignment: Qt.AlignVCenter
+                    padding: window.dp(12); topPadding: window.dp(8); bottomPadding: window.dp(8)
+                    implicitHeight: Math.max(window.dp(40),textMetrics.height+window.dp(22))
                     text: qsTr("Close"); keyHint: "Esc"
                     onClicked: popup.reject()
                 }
