@@ -355,7 +355,7 @@ private slots:
         QVERIFY(QMetaObject::invokeMethod(preferences,"open"));
         QTRY_VERIFY(preferences->property("opened").toBool());
         QCOMPARE(preferences->property("title").toString(),QString::fromUtf8("Настройки"));
-        auto close = preferences->findChild<QQuickItem *>("dialogActionButton"); QVERIFY(close);
+        auto close = preferences->findChild<QQuickItem *>("dialogHeaderCloseButton"); QVERIFY(close);
         QCOMPARE(close->property("text").toString(),QString::fromUtf8("Закрыть"));
         QVERIFY(translator.selectLanguage("en"));
         QCOMPARE(add->property("text").toString(), "Add sound");
@@ -1046,10 +1046,20 @@ private slots:
         QTRY_VERIFY(dialog->property("opened").toBool());
         QVERIFY(dialog->property("height").toDouble() <= window->height()-24);
         QVERIFY(window->findChild<QQuickItem *>("microphoneComboBox"));
+        QVERIFY(!dialog->property("footer").value<QQuickItem *>());
+        auto close = dialog->findChild<QQuickItem *>("dialogHeaderCloseButton"); QVERIFY(close);
+        QVERIFY(close->isVisible()); QCOMPARE(close->property("keyHint").toString(),"Esc");
+        auto header = dialog->property("header").value<QQuickItem *>(); QVERIFY(header);
+        QVERIFY(close->mapToItem(header,QPointF()).y() >= 0);
+        QVERIFY(close->mapToItem(header,QPointF(0,close->height())).y() <= header->height());
         if (const auto capture = qEnvironmentVariable("MICPAD_CAPTURE_DIR"); !capture.isEmpty()) {
             QDir().mkpath(capture);
             window->grabWindow().save(capture + "/preferences.png");
         }
+        QTest::mouseClick(window, Qt::LeftButton, {}, close->mapToScene(close->boundingRect().center()).toPoint());
+        QTRY_VERIFY(!dialog->property("visible").toBool());
+        QTest::mouseClick(window, Qt::LeftButton, {}, preferences->mapToScene(preferences->boundingRect().center()).toPoint());
+        QTRY_VERIFY(dialog->property("opened").toBool());
         QTest::keyClick(window, Qt::Key_Escape);
         QTRY_VERIFY(!dialog->property("opened").toBool());
         QCOMPARE(warnings, 0);

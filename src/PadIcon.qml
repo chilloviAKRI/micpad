@@ -54,9 +54,20 @@ Item {
             case "search": c.strokeRect(3,3,9,9); line(12,12,17,17); break
             case "close": line(5,5,15,15); line(15,5,5,15); break
             case "settings":
-                c.strokeRect(5,5,10,10); c.fillRect(8,8,4,4)
-                line(8,2,8,5); line(12,2,12,5); line(8,15,8,18); line(12,15,12,18)
-                line(2,8,5,8); line(2,12,5,12); line(15,8,18,8); line(15,12,18,12); break
+                c.lineWidth = 1.6
+                c.beginPath()
+                for (let tooth=0; tooth<8; ++tooth) {
+                    const angle = tooth*Math.PI/4
+                    const points = [[angle-.22,6.2],[angle-.22,8.5],[angle+.22,8.5],[angle+.22,6.2]]
+                    for (let vertex=0; vertex<points.length; ++vertex) {
+                        const x = 10+Math.cos(points[vertex][0])*points[vertex][1]
+                        const y = 10+Math.sin(points[vertex][0])*points[vertex][1]
+                        if (tooth === 0 && vertex === 0) c.moveTo(x,y)
+                        else c.lineTo(x,y)
+                    }
+                }
+                c.closePath(); c.stroke()
+                c.beginPath(); c.arc(10,10,2.5,0,Math.PI*2); c.stroke(); break
             case "sound":
                 line(6,4,6,14); line(6,4,15,2); line(15,2,15,12)
                 c.fillRect(2,12,5,4); c.fillRect(11,10,5,4); break

@@ -436,6 +436,7 @@ ApplicationWindow {
     }
     component PadDialog: Dialog {
         id: popup
+        property bool closeInHeader: false
         font: window.font
         padding: window.dp(16); topPadding: window.dp(12)
         Material.roundedScale: theme.radius; Material.elevation: 0
@@ -446,7 +447,13 @@ ApplicationWindow {
                 anchors.fill: parent; anchors.leftMargin: window.dp(16); anchors.rightMargin: window.dp(16)
                 Label { text: ">"; color: window.accent; font: window.monoFont }
                 Label { text: popup.title.toLocaleUpperCase(); color: window.ink; font: window.monoBoldFont; Layout.fillWidth: true; elide: Text.ElideRight }
-                KeyCap { label: "Esc" }
+                KeyCap { visible: !popup.closeInHeader; label: "Esc" }
+                PadButton {
+                    objectName: "dialogHeaderCloseButton"
+                    visible: popup.closeInHeader
+                    text: qsTr("Close"); keyHint: "Esc"
+                    onClicked: popup.reject()
+                }
             }
             Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: window.rule }
         }
@@ -727,10 +734,12 @@ ApplicationWindow {
     }
     PadDialog {
         id: preferences; objectName: "preferencesDialog"
+        closeInHeader: true
+        footer: null
         anchors.centerIn: parent; width: Math.min(window.width-window.dp(40),window.dp(640))
         height: Math.min(window.height-window.dp(24),implicitHeight)
         title: qsTr("Preferences")
-        modal: true; standardButtons: Dialog.Close
+        modal: true; standardButtons: Dialog.NoButton
         contentItem: ScrollView {
             id: preferencesScroll
             implicitHeight: preferencesFields.implicitHeight
