@@ -126,9 +126,9 @@ QList<Route> Graph::monitorRoutes(int ownNode) const {
 }
 
 PlaybackPlan Graph::playbackPlan(const QString &source, const QString &applicationSerial,
-                                 int ownNode, bool monitorEnabled) const {
+                                 int ownNode, bool monitorEnabled, bool captureEnabled) const {
     PlaybackPlan plan;
-    plan.capture = routes(source, applicationSerial, ownNode);
+    if (captureEnabled) plan.capture = routes(source, applicationSerial, ownNode);
     if (monitorEnabled) plan.monitor = monitorRoutes(ownNode);
     plan.captureReady = hasActiveRoute(ownNode, plan.capture);
     plan.monitorReady = hasActiveRoute(ownNode, plan.monitor);

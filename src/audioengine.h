@@ -13,6 +13,11 @@ public:
     ~AudioEngine() override;
     bool start(std::shared_ptr<const PcmFile> samples);
     void stop();
+    void setPaused(bool paused);
+    bool paused() const { return m_paused.load(); }
+    bool seek(double progress);
+    double duration() const;
+    double position() const;
     void setRoutes(const QList<Route> &routes);
     void setMicrophoneGain(float gain) { m_microphoneGain.store(gain); }
     void setHeadphoneGain(float gain) { m_headphoneGain.store(gain); }
@@ -40,6 +45,6 @@ private:
     std::atomic<qsizetype> m_cursor{0};
     std::atomic<float> m_microphoneGain{float(AudioLevels::DefaultMicrophone)};
     std::atomic<float> m_headphoneGain{float(AudioLevels::DefaultHeadphones)};
-    std::atomic<bool> m_repeat{false}, m_finished{false};
+    std::atomic<bool> m_repeat{false}, m_finished{false}, m_paused{false};
     std::atomic<bool> m_microphoneAllowed{false}, m_headphonesAllowed{false};
 };

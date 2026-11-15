@@ -1,0 +1,107 @@
+[
+  {
+    "id": "micpad-dark",
+    "name": "Micpad Dark",
+    "colors": {
+      "mode": "dark",
+      "background": "#232528",
+      "foreground": "#e2e4e6",
+      "accent": "#ffd60a"
+    }
+  },
+  {
+    "id": "gruvbox",
+    "name": "Gruvbox",
+    "colors": {
+      "mode": "dark",
+      "background": "#282828",
+      "dark_background": "#1d2021",
+      "lighter_background": "#3c3836",
+      "foreground": "#ebdbb2",
+      "light_foreground": "#bdae93",
+      "muted": "#665c54",
+      "selection": "#504945",
+      "accent": "#b8bb26",
+      "red": "#fb4934",
+      "green": "#b8bb26",
+      "yellow": "#fabd2f",
+      "blue": "#83a598"
+    }
+  },
+  {
+    "id": "tokyo-night",
+    "name": "Tokyo Night",
+    "colors": {
+      "mode": "dark",
+      "background": "#1a1b26",
+      "dark_background": "#16161e",
+      "lighter_background": "#24283b",
+      "foreground": "#c0caf5",
+      "light_foreground": "#a9b1d6",
+      "muted": "#565f89",
+      "selection": "#283457",
+      "accent": "#7aa2f7",
+      "red": "#f7768e",
+      "green": "#9ece6a",
+      "yellow": "#e0af68",
+      "blue": "#7dcfff"
+    }
+  },
+  {
+    "id": "catppuccin-mocha",
+    "name": "Catppuccin Mocha",
+    "colors": {
+      "mode": "dark",
+      "background": "#1e1e2e",
+      "dark_background": "#181825",
+      "lighter_background": "#313244",
+      "foreground": "#cdd6f4",
+      "light_foreground": "#bac2de",
+      "muted": "#6c7086",
+      "selection": "#45475a",
+      "accent": "#cba6f7",
+      "red": "#f38ba8",
+      "green": "#a6e3a1",
+      "yellow": "#f9e2af",
+      "blue": "#89b4fa"
+    }
+  },
+  {
+    "id": "nord",
+    "name": "Nord",
+    "colors": {
+      "mode": "dark",
+      "background": "#2e3440",
+      "dark_background": "#272c36",
+      "lighter_background": "#3b4252",
+      "foreground": "#eceff4",
+      "light_foreground": "#d8dee9",
+      "muted": "#616e88",
+      "selection": "#434c5e",
+      "accent": "#88c0d0",
+      "red": "#bf616a",
+      "green": "#a3be8c",
+      "yellow": "#ebcb8b",
+      "blue": "#81a1c1"
+    }
+  },
+  {
+    "id": "paper",
+    "name": "Paper",
+    "colors": {
+      "mode": "light",
+      "background": "#f5f1e8",
+      "dark_background": "#ece5d8",
+      "lighter_background": "#e5dccb",
+      "foreground": "#35312b",
+      "light_foreground": "#625b50",
+      "muted": "#a79d8d",
+      "selection": "#d4dfd6",
+      "accent": "#346751",
+      "red": "#b23a36",
+      "green": "#346751",
+      "yellow": "#8b651b",
+      "blue": "#356b94"
+    }
+  }
+]

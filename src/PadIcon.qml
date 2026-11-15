@@ -18,7 +18,7 @@ Item {
             c.reset()
             c.scale(width/20,height/20)
             c.strokeStyle = icon.ink; c.fillStyle = icon.ink
-            c.lineWidth = 1.6; c.lineCap = "round"; c.lineJoin = "round"
+            c.lineWidth = 2; c.lineCap = "square"; c.lineJoin = "miter"
             function line(x1,y1,x2,y2) { c.beginPath(); c.moveTo(x1,y1); c.lineTo(x2,y2); c.stroke() }
             function triangle(x,y,reverse) {
                 c.beginPath(); c.moveTo(x,y); c.lineTo(x+(reverse ? -9 : 9),y+6)
@@ -26,16 +26,19 @@ Item {
             }
             switch (icon.symbol) {
             case "play": triangle(6,4,false); break
-            case "stop": c.fillRect(5,5,11,11); break
-            case "previous": triangle(15,4,true); line(4,4,4,16); break
-            case "next": triangle(5,4,false); line(16,4,16,16); break
+            case "pause": c.fillRect(5,4,4,12); c.fillRect(11,4,4,12); break
+            case "rewind": triangle(10,4,true); triangle(18,4,true); break
+            case "forward": triangle(2,4,false); triangle(10,4,false); break
+            case "stop": c.fillRect(5,5,10,10); break
+            case "previous": triangle(16,4,true); line(5,4,5,16); break
+            case "next": triangle(4,4,false); line(15,4,15,16); break
             case "microphone":
-                c.beginPath(); c.roundedRect(7,2,6,11,3,3); c.fill()
-                c.beginPath(); c.arc(10,10,6,0,Math.PI); c.stroke()
-                line(4,8,4,10); line(16,8,16,10); line(10,16,10,19); line(7,19,13,19); break
+                c.fillRect(7,2,6,10)
+                c.beginPath(); c.moveTo(4,8); c.lineTo(4,15); c.lineTo(16,15); c.lineTo(16,8); c.stroke()
+                line(10,15,10,19); line(7,19,13,19); break
             case "headphones":
-                c.beginPath(); c.arc(10,10,7,Math.PI,2*Math.PI); c.stroke()
-                c.fillRect(2,9,4,8); c.fillRect(14,9,4,8); break
+                c.beginPath(); c.moveTo(3,15); c.lineTo(3,6); c.lineTo(6,3); c.lineTo(14,3); c.lineTo(17,6); c.lineTo(17,15); c.stroke()
+                c.fillRect(2,10,4,8); c.fillRect(14,10,4,8); break
             case "add":
                 c.beginPath(); c.moveTo(2,5); c.lineTo(8,5); c.lineTo(10,7); c.lineTo(18,7)
                 c.lineTo(18,17); c.lineTo(2,17); c.closePath(); c.stroke()
@@ -48,17 +51,19 @@ Item {
                 c.lineTo(6,12); c.lineTo(2,12); c.closePath(); c.fill()
                 c.beginPath(); c.arc(10,10,5,-.8,.8); c.stroke()
                 c.beginPath(); c.arc(10,10,8,-.8,.8); c.stroke(); break
-            case "search": c.beginPath(); c.arc(8,8,5,0,2*Math.PI); c.stroke(); line(12,12,17,17); break
+            case "search": c.strokeRect(3,3,9,9); line(12,12,17,17); break
             case "close": line(5,5,15,15); line(15,5,5,15); break
             case "settings":
-                c.beginPath(); c.arc(10,10,5.8,0,2*Math.PI); c.stroke()
-                c.beginPath(); c.arc(10,10,2,0,2*Math.PI); c.stroke()
-                for (let i=0; i<8; ++i) { let a=i*Math.PI/4; line(10+6*Math.cos(a),10+6*Math.sin(a),10+8*Math.cos(a),10+8*Math.sin(a)) }
-                break
+                c.strokeRect(5,5,10,10); c.fillRect(8,8,4,4)
+                line(8,2,8,5); line(12,2,12,5); line(8,15,8,18); line(12,15,12,18)
+                line(2,8,5,8); line(2,12,5,12); line(15,8,18,8); line(15,12,18,12); break
             case "sound":
                 line(6,4,6,14); line(6,4,15,2); line(15,2,15,12)
-                c.beginPath(); c.ellipse(2,12,5,4); c.fill()
-                c.beginPath(); c.ellipse(11,10,5,4); c.fill(); break
+                c.fillRect(2,12,5,4); c.fillRect(11,10,5,4); break
+            case "terminal": line(3,4,9,10); line(9,10,3,16); line(12,16,18,16); break
+            case "menu": line(3,5,17,5); line(3,10,17,10); line(3,15,17,15); break
+            case "check": line(4,10,8,14); line(8,14,16,5); break
+            case "chevron": line(5,7,10,12); line(10,12,15,7); break
             }
         }
     }

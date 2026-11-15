@@ -45,6 +45,6 @@ public:
     QList<Route> routes(const QString &source, const QString &applicationSerial, int ownNode) const;
     QList<Route> monitorRoutes(int ownNode) const;
     PlaybackPlan playbackPlan(const QString &source, const QString &applicationSerial,
-                              int ownNode, bool monitorEnabled) const;
+                              int ownNode, bool monitorEnabled, bool captureEnabled = true) const;
     bool hasActiveRoute(int ownNode, const QList<Route> &desired) const;
 };

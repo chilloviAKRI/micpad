@@ -16,6 +16,7 @@
 #include <QUrl>
 #include <QUuid>
 #include <algorithm>
+#include <cmath>
 
 Backend::Backend(bool offline, QObject *parent) : QObject(parent), m_offline(offline) {
     m_dataPath = QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation);
@@ -30,7 +31,6 @@ Backend::Backend(bool offline, QObject *parent) : QObject(parent), m_offline(off
             m_clips = o.value("clips").toArray().toVariantList();
             m_microphone = o.value("microphone").toString();
             m_levels = AudioLevels::fromJson(o);
-            m_monitorEnabled = o.value("monitorEnabled").toBool(true);
         }
     }
     if (offline && QCoreApplication::instance()->property("demo").toBool()) {
@@ -89,8 +89,12 @@ Backend::Backend(bool offline, QObject *parent) : QObject(parent), m_offline(off
     m_tick.setInterval(50);
     connect(&m_tick, &QTimer::timeout, this, [this] {
         if (m_audio.finished()) stop();
-        else if (!m_playing.isEmpty() && !busy() && m_routeWait.isValid() && m_routeWait.elapsed() > 5000 && progress() == 0) {
-            stop(); fail(tr("No active audio output. Check your headphones or enable microphone capture in the target app."));
+        else if (!m_playing.isEmpty() && !busy() && !paused() && m_routeWait.isValid() && m_routeWait.elapsed() > 5000 && progress() == 0) {
+            const QString message = m_outputMode == OutputMode::Microphone
+                ? tr("No microphone capture connection is active. Check the calling app.")
+                : m_outputMode == OutputMode::Headphones ? tr("No headphone output is active. Check your default audio output.")
+                : tr("No active audio output. Check your headphones or enable microphone capture in the target app.");
+            stop(); fail(message);
         }
         emit changed();
     });
@@ -135,7 +139,6 @@ void Backend::save() {
     auto settings = m_levels.toJson();
     settings.insert("clips", QJsonArray::fromVariantList(m_clips));
     settings.insert("microphone", m_microphone);
-    settings.insert("monitorEnabled", m_monitorEnabled);
     const QByteArray data = QJsonDocument(settings).toJson();
     if (!file.open(QIODevice::WriteOnly) || file.write(data) != data.size() || !file.commit())
         fail(tr("Cannot save the sound library."));
@@ -150,25 +153,42 @@ void Backend::setTarget(const QString &serial) {
     stop(); m_target = serial; updateRoutes(); emit changed();
 }
 void Backend::setMicrophoneVolume(double value) {
-    const double level = AudioLevels::bounded(value, m_levels.microphone);
+    const double level = AudioLevels::stepped(value, m_levels.microphone);
     if (level == m_levels.microphone) return;
     m_levels.microphone = level;
     m_audio.setMicrophoneGain(float(level));
     save(); emit changed();
 }
 void Backend::setHeadphoneVolume(double value) {
-    const double level = AudioLevels::bounded(value, m_levels.headphones);
+    const double level = AudioLevels::stepped(value, m_levels.headphones);
     if (level == m_levels.headphones) return;
     m_levels.headphones = level;
     m_audio.setHeadphoneGain(float(level));
-    if (m_output) m_output->setVolume(level);
     save(); emit changed();
 }
 void Backend::setRepeat(bool value) { m_repeat = value; m_audio.setLoop(value); emit changed(); }
-void Backend::setMonitorEnabled(bool value) {
-    if (m_monitorEnabled == value) return;
-    m_monitorEnabled = value;
-    updateRoutes(); save(); emit changed();
+QString Backend::outputMode() const {
+    return m_outputMode == OutputMode::Microphone ? "microphone" : m_outputMode == OutputMode::Headphones ? "headphones" : "normal";
+}
+
+bool Backend::wantsHeadphones() const {
+    return m_outputMode != OutputMode::Microphone;
+}
+
+void Backend::setPaused(bool value) {
+    if (m_playing.isEmpty() || busy() || duration() <= 0 || value == paused()) return;
+    m_audio.setPaused(value);
+    if (!value) m_routeWait.restart();
+    updateRoutes(); emit changed();
+}
+
+bool Backend::seek(double progress) {
+    if (m_playing.isEmpty() || busy() || !m_audio.seek(progress)) return false;
+    m_routeWait.restart(); emit changed(); return true;
+}
+
+void Backend::seekBy(double seconds) {
+    if (duration() > 0 && std::isfinite(seconds)) seek((position()+seconds)/duration());
 }
 
 void Backend::refresh() {
@@ -178,23 +198,22 @@ void Backend::refresh() {
 
 void Backend::updateRoutes() {
     const int ownNode = m_audio.nodeId();
-    const auto plan = m_graph.playbackPlan(m_microphone,m_target,ownNode,m_monitorEnabled);
+    const auto plan = m_graph.playbackPlan(m_microphone,m_target,ownNode,wantsHeadphones(),m_outputMode != OutputMode::Headphones);
     // Each destination has its own gate. Local playback can advance without
     // a call, while a muted or missing microphone always gets digital silence.
     m_audio.setAllowed(plan.captureReady,plan.monitorReady);
     m_audio.setRoutes(plan.links());
-    m_sending = plan.captureReady;
-    m_listening = plan.monitorReady;
+    m_sending = plan.captureReady && !paused();
+    m_listening = plan.monitorReady && !paused();
     if (busy()) m_status = tr("Loading: %1").arg(m_playing);
-    else if (m_playing.isEmpty()) m_status = m_monitorEnabled
-        ? tr("Ready. You can listen without a call.")
-        : tr("Local listening is off. Sounds will be sent to apps using your microphone.");
+    else if (m_playing.isEmpty()) m_status = tr("Ready. You can listen without a call.");
+    else if (paused()) m_status = tr("Paused: %1").arg(m_playing);
     else if (m_sending && m_listening) m_status = tr("Playing for you and your callers: %1").arg(m_playing);
     else if (m_sending) m_status = tr("Sending: %1").arg(m_playing);
     else if (m_listening) m_status = tr("Playing only for you: %1").arg(m_playing);
     else m_status = tr("Connecting audio outputs…");
     const auto monitorWarning = tr("Local listening unavailable: check your default sound output.");
-    if (m_monitorEnabled && ownNode >= 0) {
+    if (wantsHeadphones() && ownNode >= 0) {
         if (plan.monitor.isEmpty() && m_routeWait.isValid() && m_routeWait.elapsed() > 1000) {
             m_status = monitorWarning;
             if (m_error.isEmpty()) m_error = monitorWarning;
@@ -252,12 +271,25 @@ void Backend::addUrls(const QStringList &urls) {
 }
 
 void Backend::play(int index) {
+    playClip(index,OutputMode::Normal);
+}
+
+void Backend::preview(int index) {
+    playClip(index,OutputMode::Headphones);
+}
+
+void Backend::playMicrophoneOnly(int index) {
+    playClip(index,OutputMode::Microphone);
+}
+
+void Backend::playClip(int index, OutputMode mode) {
     if (index < 0 || index >= m_clips.size()) return;
     stop(); clearError();
+    m_outputMode = mode;
     if (!m_connected) { fail(tr("Cannot connect to PipeWire.")); return; }
-    if (!m_monitorEnabled) {
+    if (!wantsHeadphones()) {
         if (m_graph.applications(m_microphone).isEmpty()) {
-            fail(tr("Enable 'Hear played sounds myself' to listen without a call.")); return;
+            fail(tr("No app is recording this microphone. Start a call or microphone test.")); return;
         }
         for (const auto &n : m_graph.nodes)
             if (n.name == m_microphone && n.muted) { fail(tr("Unmute your microphone before sending sounds.")); return; }
@@ -269,29 +301,11 @@ void Backend::play(int index) {
     m_decoder.start(path); emit changed();
 }
 
-void Backend::preview(int index) {
-    if (index < 0 || index >= m_clips.size()) return;
-    stop();
-    if (!m_connected) { fail(tr("Cannot connect to PipeWire.")); return; }
-    if (!m_player) {
-        m_output = new QAudioOutput(this);
-        m_output->setVolume(m_levels.headphones);
-        m_player = new QMediaPlayer(this);
-        m_player->setAudioOutput(m_output);
-        connect(m_player, &QMediaPlayer::errorOccurred, this, [this](QMediaPlayer::Error, const QString &message) {
-            if (!message.isEmpty()) fail(tr("Preview: %1").arg(message));
-        });
-    }
-    m_player->setSource(QUrl::fromLocalFile(m_clips[index].toMap().value("path").toString()));
-    m_player->play();
-    m_status = tr("Preview plays through your speakers or headphones only."); emit changed();
-}
-
 void Backend::stop() {
     m_playing.clear(); m_routeWait.invalidate();
     m_sending = false; m_listening = false;
     m_decoder.stop(); m_audio.stop();
-    if (m_player) m_player->stop();
+    m_outputMode = OutputMode::Normal;
     m_status = tr("Stopped. Microphone routing is unchanged."); emit changed();
 }
 void Backend::remove(int index) {
@@ -324,6 +338,12 @@ void Backend::enableHotkeys() {
 QString Backend::command(const QStringList &args) {
     if (args.isEmpty() || args.first() == "open") { emit openRequested(); return "ok"; }
     if (args.first() == "stop") { stop(); return "ok"; }
+    if (args == QStringList{"pause"}) { setPaused(true); return "ok"; }
+    if (args == QStringList{"resume"}) { setPaused(false); return "ok"; }
+    if (args.first() == "seek" && args.size() == 2) {
+        bool valid; const double seconds = args[1].toDouble(&valid);
+        return valid && duration() > 0 && seek(seconds/duration()) ? "ok" : "error: invalid position or no sound is playing";
+    }
     if (args.first() == "add" && args.size() > 1) {
         clearError(); addUrls(args.mid(1)); return m_error.isEmpty() ? "ok" : "error: " + m_error;
     }

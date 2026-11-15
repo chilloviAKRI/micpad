@@ -48,6 +48,7 @@ int main(int argc, char **argv) {
     };
     if (args.contains("--help") || args.contains("-h")) {
         QTextStream(stdout) << "Micpad 0.1.0\nmicpad [open]\nmicpad play NUMBER [--json]\nmicpad stop [--json]\n"
+                              "micpad pause [--json]\nmicpad resume [--json]\nmicpad seek SECONDS [--json]\n"
                               "micpad add FILE... [--json]\nmicpad list [--json]\nmicpad check [--json]\nmicpad skill install [--json]\n";
         return 0;
     }
@@ -118,7 +119,9 @@ int main(int argc, char **argv) {
     QQuickStyle::setStyle("Material");
     Translator translator; app.installTranslator(&translator);
     app.setProperty("demo", screenshot);
-    Theme theme(screenshot ? "/tmp/micpad-demo-no-theme" : QString());
+    Theme theme(screenshot ? qEnvironmentVariable("MICPAD_DEMO_THEME_DIR", "/tmp/micpad-demo-no-theme") : QString(),
+                nullptr, {}, screenshot ? QDir::homePath()+"/.config/fontconfig" : QString(), {},
+                QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation)+"/appearance.json");
     Backend backend(screenshot);
     QObject::connect(&server, &QLocalServer::newConnection, &app, [&] {
         while (auto socket = server.nextPendingConnection()) {

@@ -1,10 +1,10 @@
 pkgname=micpad
 pkgver=0.1.0
-pkgrel=10
+pkgrel=18
 pkgdesc='Soundboard that mixes into existing PipeWire capture streams'
 arch=('x86_64' 'aarch64')
 license=('MIT')
-depends=('qt6-base' 'qt6-declarative' 'qt6-multimedia' 'qt6-svg' 'qt6-wayland' 'pipewire' 'ffmpeg' 'python')
+depends=('qt6-base' 'qt6-declarative' 'qt6-multimedia' 'qt6-svg' 'qt6-wayland' 'pipewire' 'ffmpeg' 'fontconfig' 'python')
 makedepends=('base-devel')
 
 build() {

@@ -4,11 +4,18 @@
 #include <cstddef>
 
 namespace Pcm {
+inline std::size_t frameAt(double progress, std::size_t count) {
+    if (!std::isfinite(progress) || progress <= 0) return 0;
+    if (progress >= 1) return count;
+    const long double frame = std::round(static_cast<long double>(progress)*count);
+    return frame >= count ? count : static_cast<std::size_t>(frame);
+}
 // This runs on the audio thread and does no allocation, locking or I/O.
 inline bool render(const float *source, std::size_t count, std::size_t &cursor,
                    float *destination, std::size_t frames, float microphoneGain,
-                   float headphoneGain, bool repeat, bool microphoneAllowed, bool headphonesAllowed) {
-    const bool allowed = microphoneAllowed || headphonesAllowed;
+                   float headphoneGain, bool repeat, bool microphoneAllowed, bool headphonesAllowed,
+                   bool paused = false) {
+    const bool allowed = !paused && (microphoneAllowed || headphonesAllowed);
     bool finished = false;
     for (std::size_t i = 0; i < frames; ++i) {
         float value = 0;

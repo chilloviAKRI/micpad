@@ -72,8 +72,29 @@ void AudioEngine::stop() {
         if (m_context) { pw_context_destroy(m_context); m_context = nullptr; }
         pw_thread_loop_destroy(m_loop); m_loop = nullptr;
     }
-    m_samples.reset(); m_cursor = 0; m_finished = false;
+    m_samples.reset(); m_cursor = 0; m_finished = false; m_paused = false;
 }
+
+void AudioEngine::setPaused(bool paused) {
+    if (!m_loop || !m_samples) return;
+    pw_thread_loop_lock(m_loop);
+    m_paused.store(paused); m_finished.store(false);
+    pw_thread_loop_unlock(m_loop);
+}
+
+bool AudioEngine::seek(double progress) {
+    if (!m_loop || !m_samples || !std::isfinite(progress)) return false;
+    // Serialize with process(): an atomic store alone could be overwritten
+    // by the callback publishing the cursor from its previous buffer.
+    pw_thread_loop_lock(m_loop);
+    m_cursor.store(qsizetype(Pcm::frameAt(progress,std::size_t(m_samples->count()))));
+    m_finished.store(false);
+    pw_thread_loop_unlock(m_loop);
+    return true;
+}
+
+double AudioEngine::duration() const { return m_samples ? double(m_samples->count())/48000. : 0; }
+double AudioEngine::position() const { return double(m_cursor.load())/48000.; }
 
 int AudioEngine::nodeId() const {
     if (!m_stream || !m_loop) return -1;
@@ -128,7 +149,8 @@ void AudioEngine::process(void *data) {
     std::size_t cursor = self->m_cursor.load();
     const bool done = Pcm::render(src, count, cursor, dst, frames,
                                  self->m_microphoneGain.load(), self->m_headphoneGain.load(),
-                                 self->m_repeat.load(), self->m_microphoneAllowed.load(), self->m_headphonesAllowed.load());
+                                 self->m_repeat.load(), self->m_microphoneAllowed.load(), self->m_headphonesAllowed.load(),
+                                 self->m_paused.load());
     self->m_finished.store(done);
     self->m_cursor.store(cursor);
     d.chunk->offset = 0; d.chunk->stride = stride; d.chunk->size = frames * stride;

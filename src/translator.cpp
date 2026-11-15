@@ -8,11 +8,14 @@
 #include <QJsonObject>
 #include <QLocale>
 #include <QRegularExpression>
+#include <QSaveFile>
+#include <QStandardPaths>
 
 Translator::Translator(const QString &languageFile, const QString &catalogDirectory, QObject *parent)
     : QTranslator(parent),
-      m_languageFile(languageFile.isEmpty() ? QDir::homePath() + "/.config/omarchy/language" : languageFile),
-      m_catalogDirectory(catalogDirectory) {
+      m_languageFile(languageFile.isEmpty() ? QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation) + "/language" : languageFile),
+      m_catalogDirectory(catalogDirectory),
+      m_startupLanguage(qEnvironmentVariable("MICPAD_LANGUAGE")) {
     m_debounce.setSingleShot(true);
     m_debounce.setInterval(80);
     connect(&m_watcher, &QFileSystemWatcher::directoryChanged, this, [this] { m_debounce.start(); });
@@ -21,14 +24,39 @@ Translator::Translator(const QString &languageFile, const QString &catalogDirect
     reload();
 }
 
-// Follow Omarchy when configured; the original user's language is Russian.
+// The app's choice is independent of the desktop language.
 QString Translator::readLanguage(const QString &path) {
     QFile file(path);
     if (!file.open(QIODevice::ReadOnly))
-        return "ru";
+        return "en";
     const QString code = QString::fromUtf8(file.readLine()).trimmed();
     static const QRegularExpression valid("^[a-z]{2,3}(-[A-Za-z]{2})?$");
     return valid.match(code).hasMatch() ? code : "en";
+}
+
+bool Translator::selectLanguage(const QString &language) {
+    if (language != "en" && language != "ru") {
+        m_error = tr("Unsupported language."); emit changed(); return false;
+    }
+    QSaveFile file(m_languageFile);
+    const QByteArray data = language.toUtf8() + '\n';
+    if (!QDir().mkpath(QFileInfo(m_languageFile).absolutePath()) || !file.open(QIODevice::WriteOnly)
+        || file.write(data) != data.size() || !file.commit()) {
+        m_error = tr("Cannot save the language preference."); emit changed(); return false;
+    }
+    const bool hadError = !m_error.isEmpty();
+    m_error.clear();
+    // An explicit menu choice takes over from the optional launch override.
+    // The environment still applies on the next process launch.
+    m_startupLanguage.clear();
+    reload();
+    if (hadError) emit changed();
+    return true;
+}
+
+void Translator::clearError() {
+    if (m_error.isEmpty()) return;
+    m_error.clear(); emit changed();
 }
 
 // CLDR cardinal plural categories for whole counts, for Omarchy's languages
@@ -97,16 +125,17 @@ void Translator::reload() {
     if (!paths.isEmpty())
         m_watcher.removePaths(paths);
 
-    // omarchy-language replaces the file, which drops it from the watch, and a
-    // first pick creates it; watch its directory too and re-arm every time.
+    // Atomic saves replace the preference file. Watch its parent too, including
+    // the nearest existing ancestor before a first preference has been saved.
     const QString directory = QFileInfo(m_languageFile).absolutePath();
-    if (QFileInfo::exists(directory))
-        m_watcher.addPath(directory);
-    if (QFileInfo::exists(m_languageFile))
-        m_watcher.addPath(m_languageFile);
+    QString ancestor = directory;
+    while (!QFileInfo::exists(ancestor) && ancestor != "/") ancestor = QFileInfo(ancestor).absolutePath();
+    QStringList candidates{ancestor, directory, m_languageFile};
+    candidates.removeDuplicates();
+    for (const auto &path : candidates) if (QFileInfo::exists(path)) m_watcher.addPath(path);
 
     // Catalogs are compiled in, so only a different language needs a reload.
-    const QString language = qEnvironmentVariable("MICPAD_LANGUAGE", readLanguage(m_languageFile));
+    const QString language = m_startupLanguage.isEmpty() ? readLanguage(m_languageFile) : m_startupLanguage;
     if (language == m_language)
         return;
 
