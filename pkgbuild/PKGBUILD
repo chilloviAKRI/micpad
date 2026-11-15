@@ -1,0 +1,22 @@
+pkgname=micpad
+pkgver=0.1.0
+pkgrel=10
+pkgdesc='Soundboard that mixes into existing PipeWire capture streams'
+arch=('x86_64' 'aarch64')
+license=('MIT')
+depends=('qt6-base' 'qt6-declarative' 'qt6-multimedia' 'qt6-svg' 'qt6-wayland' 'pipewire' 'ffmpeg' 'python')
+makedepends=('base-devel')
+
+build() {
+    cd "$startdir/.."
+    bin/build
+}
+
+package() {
+    cd "$startdir/.."
+    install -Dm755 build/micpad "$pkgdir/usr/bin/micpad"
+    install -Dm755 bin/micpad-hotkeys "$pkgdir/usr/bin/micpad-hotkeys"
+    install -Dm644 pkgbuild/micpad.desktop "$pkgdir/usr/share/applications/micpad.desktop"
+    install -Dm644 pkgbuild/micpad.svg "$pkgdir/usr/share/icons/hicolor/scalable/apps/micpad.svg"
+    install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}

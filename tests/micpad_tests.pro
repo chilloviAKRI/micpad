@@ -1,0 +1,9 @@
+QT += testlib core gui qml quick quickcontrols2 network dbus multimedia
+CONFIG += console testcase c++17 link_pkgconfig
+PKGCONFIG += libpipewire-0.3
+TARGET = micpad_tests
+TEMPLATE = app
+INCLUDEPATH += ../src
+SOURCES += micpad_tests.cpp ../src/graph.cpp ../src/audioengine.cpp ../src/audiodecoder.cpp ../src/backend.cpp ../src/theme.cpp ../src/translator.cpp
+HEADERS += ../src/graph.h ../src/audioengine.h ../src/audiodecoder.h ../src/backend.h ../src/levels.h ../src/theme.h ../src/translator.h
+RESOURCES += ../src/resources.qrc

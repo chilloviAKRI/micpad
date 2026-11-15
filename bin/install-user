@@ -1,0 +1,10 @@
+#!/bin/sh
+set -eu
+ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
+PREFIX="${MICPAD_INSTALL_PREFIX:-$HOME/.local}"
+install -Dm755 "$ROOT/build/micpad" "$PREFIX/bin/micpad"
+install -Dm755 "$ROOT/bin/micpad-hotkeys" "$PREFIX/bin/micpad-hotkeys"
+install -Dm644 "$ROOT/pkgbuild/micpad.desktop" "$PREFIX/share/applications/micpad.desktop"
+install -Dm644 "$ROOT/pkgbuild/micpad.svg" "$PREFIX/share/icons/hicolor/scalable/apps/micpad.svg"
+if command -v update-desktop-database >/dev/null 2>&1; then update-desktop-database "$PREFIX/share/applications"; fi
+echo "Installed $PREFIX/bin/micpad"

@@ -1,0 +1,7 @@
+<RCC><qresource prefix="/">
+<file alias="Main.qml">Main.qml</file>
+<file alias="PadIcon.qml">PadIcon.qml</file>
+<file alias="micpad.svg">../pkgbuild/micpad.svg</file>
+<file alias="SKILL.md">../docs/SKILL.md</file>
+<file>i18n/ru.json</file>
+</qresource></RCC>

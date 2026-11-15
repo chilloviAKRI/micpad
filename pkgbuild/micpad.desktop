@@ -1,0 +1,12 @@
+[Desktop Entry]
+Name=Micpad
+Name[ru]=Micpad
+Comment=Soundboard for your existing microphone
+Comment[ru]=Саундборд для вашего обычного микрофона
+Exec=micpad open
+Icon=micpad
+Terminal=false
+Type=Application
+Categories=AudioVideo;Audio;Qt;
+Keywords=soundboard;soundpad;microphone;
+StartupWMClass=micpad

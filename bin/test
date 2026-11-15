@@ -1,0 +1,9 @@
+#!/bin/sh
+set -eu
+ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
+mkdir -p "$ROOT/build/tests"
+cd "$ROOT/build/tests"
+qmake6 "$ROOT/tests/micpad_tests.pro"
+make -j"${MICPAD_BUILD_JOBS:-4}"
+QT_QPA_PLATFORMTHEME=generic QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software QT_FORCE_STDERR_LOGGING=1 ./micpad_tests
+python3 "$ROOT/tests/hotkeys_test.py"
