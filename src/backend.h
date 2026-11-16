@@ -1,6 +1,7 @@
 #pragma once
 #include "audioengine.h"
 #include "graph.h"
+#include "playbackqueue.h"
 #include <QElapsedTimer>
 #include <QObject>
 #include <QProcess>
@@ -27,6 +28,7 @@ class Backend : public QObject {
     Q_PROPERTY(double headphoneVolume READ headphoneVolume WRITE setHeadphoneVolume NOTIFY changed)
     Q_PROPERTY(int volumeSteps READ volumeSteps CONSTANT)
     Q_PROPERTY(bool repeat READ repeat WRITE setRepeat NOTIFY changed)
+    Q_PROPERTY(bool autoAdvance READ autoAdvance WRITE setAutoAdvance NOTIFY changed)
     Q_PROPERTY(bool connected READ connected NOTIFY changed)
     Q_PROPERTY(bool sending READ sending NOTIFY changed)
     Q_PROPERTY(bool listening READ listening NOTIFY changed)
@@ -51,6 +53,7 @@ public:
     double headphoneVolume() const { return m_levels.headphones; }
     int volumeSteps() const { return AudioLevels::Steps; }
     bool repeat() const { return m_repeat; }
+    bool autoAdvance() const { return m_autoAdvance; }
     bool connected() const { return m_connected; }
     bool sending() const { return m_sending; }
     bool listening() const { return m_listening; }
@@ -59,6 +62,7 @@ public:
     void setMicrophoneVolume(double value);
     void setHeadphoneVolume(double value);
     void setRepeat(bool value);
+    void setAutoAdvance(bool value);
     void setPaused(bool paused);
     Q_INVOKABLE bool seek(double progress);
     Q_INVOKABLE void seekBy(double seconds);
@@ -67,6 +71,7 @@ public:
     Q_INVOKABLE void play(int index);
     Q_INVOKABLE void preview(int index);
     Q_INVOKABLE void playMicrophoneOnly(int index);
+    Q_INVOKABLE void setPlaybackOrder(const QVariantList &indices);
     Q_INVOKABLE void stop();
     Q_INVOKABLE void remove(int index);
     Q_INVOKABLE void rename(int index, const QString &name);
@@ -79,6 +84,7 @@ public:
 signals:
     void changed();
     void openRequested();
+    void clipStarted(int index);
 private slots:
     void fileResponse(uint response, const QVariantMap &results);
 private:
@@ -88,6 +94,7 @@ private:
     void remember();
     enum class OutputMode { Normal, Microphone, Headphones };
     void playClip(int index, OutputMode mode);
+    void finishPlayback();
     bool wantsHeadphones() const;
     AudioEngine m_audio;
     Graph m_graph;
@@ -101,6 +108,8 @@ private:
     OutputMode m_outputMode = OutputMode::Normal;
     QElapsedTimer m_routeWait;
     AudioLevels m_levels;
+    PlaybackQueue m_queue;
+    bool m_autoAdvance = false;
     bool m_repeat = false, m_connected = false, m_offline = false;
     bool m_sending = false, m_listening = false;
 };

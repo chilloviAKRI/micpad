@@ -147,6 +147,32 @@ private slots:
         QStandardPaths::setTestModeEnabled(true);
         QQuickStyle::setStyle("Material");
     }
+    void playbackQueueFollowsTheVisibleOrderAndStopsAtTheEndOrOnCancel() {
+        QVariantList clips{
+            QVariantMap{{"name","First"},{"path","/sounds/first.wav"}},
+            QVariantMap{{"name","Second"},{"path","/sounds/second.wav"}},
+            QVariantMap{{"name","Third"},{"path","/sounds/third.wav"}}
+        };
+        PlaybackQueue queue;
+        QCOMPARE(queue.next(clips),-1);
+        queue.started("/sounds/first.wav"); QCOMPARE(queue.next(clips),1);
+        queue.started("/sounds/second.wav"); QCOMPARE(queue.next(clips),2);
+        queue.started("/sounds/third.wav"); QCOMPARE(queue.next(clips),-1);
+        // Sorting and renaming use stable file paths, not names or row numbers.
+        queue.setOrder({"/sounds/third.wav","/sounds/first.wav","/sounds/second.wav"});
+        QCOMPARE(queue.next(clips),0);
+        clips[0] = QVariantMap{{"name","Renamed"},{"path","/sounds/first.wav"}};
+        QCOMPARE(queue.next(clips),0);
+        queue.started("/sounds/first.wav"); QCOMPARE(queue.next(clips),1);
+        // A filtered library advances through matching tracks only.
+        queue.setOrder({"/sounds/first.wav","/sounds/third.wav"});
+        QCOMPARE(queue.next(clips),2);
+        queue.setOrder({"/sounds/third.wav"}); QCOMPARE(queue.next(clips),-1);
+        queue.started("/sounds/third.wav"); QCOMPARE(queue.next(clips),-1);
+        queue.setOrder({"/sounds/first.wav","/sounds/third.wav"});
+        queue.started("/sounds/first.wav"); queue.clear(); QCOMPARE(queue.next(clips),-1);
+        queue.started("/sounds/first.wav"); queue.setOrder({}); QCOMPARE(queue.next(clips),-1);
+    }
     void pausedPcmStaysSilentAndSeekingResumesFromTheChosenSample() {
         const float source[]{.1f,.2f,.3f,.4f}; float output[12]; std::size_t cursor = 2;
         std::fill(std::begin(output),std::end(output),1.f);
@@ -225,6 +251,15 @@ private slots:
             if (!capture.isEmpty()) { QDir().mkpath(capture); window->grabWindow().save(capture+"/"+name+".png"); }
         };
         const auto size = window->size(); QSignalSpy resized(window,&QWindow::heightChanged);
+        auto sequence = window->findChild<QQuickItem *>("autoAdvanceButton"); QVERIFY(sequence);
+        auto repeat = window->findChild<QQuickItem *>("repeatButton"); QVERIFY(repeat);
+        backend.setRepeat(true); click(sequence);
+        QVERIFY(backend.autoAdvance()); QVERIFY(!backend.repeat());
+        QVERIFY(sequence->property("checked").toBool()); QVERIFY(!repeat->property("checked").toBool());
+        QCOMPARE(backend.displayedClip(),"Example sound"); QCOMPARE(backend.position(),30.);
+        snapshot("transport-continuous");
+        click(repeat); QVERIFY(backend.repeat()); QVERIFY(!backend.autoAdvance());
+        click(repeat); QVERIFY(!backend.repeat());
         QCOMPARE(button->property("iconSymbol").toString(),"pause");
         QVERIFY(diagram->property("microphoneActive").toBool()); QVERIFY(diagram->property("headphoneActive").toBool());
         QCOMPARE(feed->property("color").value<QColor>(),accent);

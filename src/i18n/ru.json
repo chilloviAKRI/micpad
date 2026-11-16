@@ -144,5 +144,6 @@
   "Omarchy theme not found. Using the built-in theme below.": "Тема Omarchy не найдена. Используется встроенная тема ниже.",
   "Built-in theme": "Встроенная тема",
   "Cannot save the appearance preference.": "Не удалось сохранить настройки оформления.",
-  "Unknown theme.": "Неизвестная тема."
+  "Unknown theme.": "Неизвестная тема.",
+  "Play tracks consecutively": "Проигрывать треки подряд"
 }

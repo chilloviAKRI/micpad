@@ -46,6 +46,9 @@ Item {
             case "repeat":
                 c.beginPath(); c.moveTo(3,8); c.lineTo(3,5); c.lineTo(16,5); c.lineTo(13,2); c.stroke()
                 c.beginPath(); c.moveTo(17,12); c.lineTo(17,15); c.lineTo(4,15); c.lineTo(7,18); c.stroke(); break
+            case "continuous":
+                line(3,4,12,4); line(3,8,10,8); line(3,12,8,12)
+                line(10,15,17,15); line(14,12,17,15); line(17,15,14,18); break
             case "volume":
                 c.beginPath(); c.moveTo(2,8); c.lineTo(6,8); c.lineTo(10,4); c.lineTo(10,16)
                 c.lineTo(6,12); c.lineTo(2,12); c.closePath(); c.fill()

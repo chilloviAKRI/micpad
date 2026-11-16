@@ -31,6 +31,7 @@ Backend::Backend(bool offline, QObject *parent) : QObject(parent), m_offline(off
             m_clips = o.value("clips").toArray().toVariantList();
             m_microphone = o.value("microphone").toString();
             m_levels = AudioLevels::fromJson(o);
+            m_autoAdvance = o.value("autoAdvance").toBool(false);
         }
     }
     if (offline && QCoreApplication::instance()->property("demo").toBool()) {
@@ -88,7 +89,7 @@ Backend::Backend(bool offline, QObject *parent) : QObject(parent), m_offline(off
     });
     m_tick.setInterval(50);
     connect(&m_tick, &QTimer::timeout, this, [this] {
-        if (m_audio.finished()) stop();
+        if (m_audio.finished()) finishPlayback();
         else if (!m_playing.isEmpty() && !busy() && !paused() && m_routeWait.isValid() && m_routeWait.elapsed() > 5000 && progress() == 0) {
             const QString message = m_outputMode == OutputMode::Microphone
                 ? tr("No microphone capture connection is active. Check the calling app.")
@@ -139,6 +140,7 @@ void Backend::save() {
     auto settings = m_levels.toJson();
     settings.insert("clips", QJsonArray::fromVariantList(m_clips));
     settings.insert("microphone", m_microphone);
+    settings.insert("autoAdvance", m_autoAdvance);
     const QByteArray data = QJsonDocument(settings).toJson();
     if (!file.open(QIODevice::WriteOnly) || file.write(data) != data.size() || !file.commit())
         fail(tr("Cannot save the sound library."));
@@ -166,7 +168,19 @@ void Backend::setHeadphoneVolume(double value) {
     m_audio.setHeadphoneGain(float(level));
     save(); emit changed();
 }
-void Backend::setRepeat(bool value) { m_repeat = value; m_audio.setLoop(value); emit changed(); }
+void Backend::setRepeat(bool value) {
+    if (m_repeat == value) return;
+    m_repeat = value;
+    m_audio.setLoop(value);
+    if (value && m_autoAdvance) { m_autoAdvance = false; save(); }
+    emit changed();
+}
+void Backend::setAutoAdvance(bool value) {
+    if (m_autoAdvance == value) return;
+    m_autoAdvance = value;
+    if (value && m_repeat) { m_repeat = false; m_audio.setLoop(false); }
+    save(); emit changed();
+}
 QString Backend::outputMode() const {
     return m_outputMode == OutputMode::Microphone ? "microphone" : m_outputMode == OutputMode::Headphones ? "headphones" : "normal";
 }
@@ -282,6 +296,26 @@ void Backend::playMicrophoneOnly(int index) {
     playClip(index,OutputMode::Microphone);
 }
 
+void Backend::setPlaybackOrder(const QVariantList &indices) {
+    QStringList paths;
+    for (const auto &entry : indices) {
+        bool valid = false;
+        const int index = entry.toInt(&valid);
+        if (valid && index >= 0 && index < m_clips.size()) {
+            const auto path = m_clips.at(index).toMap().value("path").toString();
+            if (!paths.contains(path)) paths.append(path);
+        }
+    }
+    m_queue.setOrder(paths);
+}
+
+void Backend::finishPlayback() {
+    if (m_playing.isEmpty()) return;
+    const int next = m_autoAdvance ? m_queue.next(m_clips) : -1;
+    if (next < 0) stop();
+    else playClip(next,m_outputMode);
+}
+
 void Backend::playClip(int index, OutputMode mode) {
     if (index < 0 || index >= m_clips.size()) return;
     stop(); clearError();
@@ -298,11 +332,13 @@ void Backend::playClip(int index, OutputMode mode) {
     const auto path = clip.value("path").toString();
     if (!QFileInfo::exists(path)) { fail(tr("The audio file has moved or was deleted: %1").arg(path)); return; }
     m_playing = clip.value("name").toString(); m_status = tr("Loading: %1").arg(m_playing);
-    m_decoder.start(path); emit changed();
+    m_queue.started(path);
+    m_decoder.start(path); emit clipStarted(index); emit changed();
 }
 
 void Backend::stop() {
     m_playing.clear(); m_routeWait.invalidate();
+    m_queue.clear();
     m_sending = false; m_listening = false;
     m_decoder.stop(); m_audio.stop();
     m_outputMode = OutputMode::Normal;

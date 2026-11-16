@@ -131,6 +131,7 @@ ApplicationWindow {
         })
         soundRows.clear()
         for (let row of rows) soundRows.append(row)
+        backend.setPlaybackOrder(rows.map(row => row.originalIndex))
         if (rowForIndex(selected) < 0) selected = rows.length ? rows[0].originalIndex : -1
     }
     function syncLibrary() {
@@ -161,7 +162,15 @@ ApplicationWindow {
         renameField.selectAll()
     }
     Component.onCompleted: syncLibrary()
-    Connections { target: backend; function onChanged() { window.syncLibrary() } }
+    Connections {
+        target: backend
+        function onChanged() { window.syncLibrary() }
+        function onClipStarted(index) {
+            window.selected = index
+            const row = window.rowForIndex(index)
+            if (row >= 0) library.positionViewAtIndex(row,ListView.Contain)
+        }
+    }
     ListModel { id: soundRows }
 
     Shortcut { sequence: "Q"; enabled: !window.dialogOpen && !window.typing; context: Qt.ApplicationShortcut; onActivated: Qt.quit() }
@@ -660,6 +669,7 @@ ApplicationWindow {
                         Label { objectName: "currentSoundLabel"; text: backend.playing || (window.hasSelection ? backend.clips[window.selected].name : qsTr("No sound selected")); color: window.ink; font.bold: true; Layout.fillWidth: true; elide: Text.ElideRight }
                     }
                     SmallButton { objectName: "repeatButton"; symbol: "repeat"; hint: qsTr("Repeat current sound"); checked: backend.repeat; onClicked: backend.repeat = !backend.repeat }
+                    SmallButton { objectName: "autoAdvanceButton"; symbol: "continuous"; hint: qsTr("Play tracks consecutively"); checked: backend.autoAdvance; onClicked: backend.autoAdvance = !backend.autoAdvance }
                     SmallButton { objectName: "microphoneOnlyButton"; symbol: "microphone"; hint: qsTr("Microphone only"); iconColor: window.red; checked: backend.outputMode === "microphone" && backend.playing.length > 0; enabled: window.hasSelection; onClicked: backend.playMicrophoneOnly(window.selected) }
                     SmallButton { objectName: "headphonesOnlyButton"; symbol: "headphones"; hint: qsTr("Headphones only"); iconColor: window.blue; checked: backend.outputMode === "headphones" && backend.playing.length > 0; enabled: window.hasSelection; onClicked: backend.preview(window.selected) }
                 }
