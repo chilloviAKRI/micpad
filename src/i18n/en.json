@@ -145,5 +145,20 @@
   "Built-in theme": "Built-in theme",
   "Cannot save the appearance preference.": "Cannot save the appearance preference.",
   "Unknown theme.": "Unknown theme.",
-  "Play tracks consecutively": "Play tracks consecutively"
+  "Play tracks consecutively": "Play tracks consecutively",
+  "From file…": "From file…",
+  "From link…": "From link…",
+  "Add from SoundCloud": "Add from SoundCloud",
+  "Downloading…": "Downloading…",
+  "Download and add": "Download and add",
+  "Install yt-dlp to add tracks from SoundCloud.": "Install yt-dlp to add tracks from SoundCloud.",
+  "Cannot create the download folder.": "Cannot create the download folder.",
+  "Could not start yt-dlp.": "Could not start yt-dlp.",
+  "SoundCloud download timed out.": "SoundCloud download timed out.",
+  "SoundCloud track or playlist link": "SoundCloud track or playlist link",
+  "Paste a SoundCloud track or playlist link.": "Paste a SoundCloud track or playlist link.",
+  "Added available tracks. Some tracks could not be downloaded.": "Added available tracks. Some tracks could not be downloaded.",
+  "Could not import audio from this SoundCloud link.": "Could not import audio from this SoundCloud link.",
+  "No new SoundCloud tracks to add.": "No new SoundCloud tracks to add.",
+  "Downloaded: %1": "Downloaded: %1"
 }

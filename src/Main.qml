@@ -77,11 +77,15 @@ ApplicationWindow {
     property string sortColumn: "number"
     property bool sortAscending: true
     property string librarySignature: ""
-    readonly property bool dialogOpen: preferences.visible || help.visible || renameDialog.visible || appMenu.visible || contextMenu.visible
+    readonly property bool dialogOpen: preferences.visible || help.visible || renameDialog.visible || importDialog.visible || addMenu.visible || appMenu.visible || contextMenu.visible
     readonly property bool adjustingLevels: microphoneControl.adjusting || headphoneControl.adjusting
     readonly property string errorMessage: backend.error || translator.error || theme.error
     readonly property bool typing: search.activeFocus || renameField.activeFocus
-    readonly property bool hasSelection: selected >= 0 && selected < backend.clips.length
+    readonly property var selectedClip: {
+        const clips = backend.clips
+        return selected >= 0 && selected < clips.length ? clips[selected] : null
+    }
+    readonly property bool hasSelection: selectedClip !== null
     readonly property int visibleCount: soundRows.count
     readonly property int numberWidth: Math.max(dp(44),Math.ceil(textMetrics.advanceWidth("9999"))+dp(12))
     readonly property int hotkeyWidth: Math.max(dp(100),Math.ceil(monoMetrics.advanceWidth(qsTr("Hotkey")))+dp(24))
@@ -156,7 +160,7 @@ ApplicationWindow {
     function renameSelected() {
         if (!hasSelection) return
         renameDialog.clipIndex = selected
-        renameField.text = backend.clips[selected].name
+        renameField.text = selectedClip.name
         renameDialog.open()
         renameField.forceActiveFocus()
         renameField.selectAll()
@@ -497,7 +501,12 @@ ApplicationWindow {
             id: appHeader
             objectName: "appHeader"
             Layout.fillWidth: true; spacing: window.dp(10)
-            PadButton { objectName: "addSoundButton"; text: qsTr("Add sound"); iconSymbol: "add"; keyHint: window.width >= window.dp(780) ? "Ctrl+O" : ""; onClicked: backend.chooseFiles() }
+            PadButton {
+                id: addSoundButton; objectName: "addSoundButton"
+                text: qsTr("Add sound"); iconSymbol: "add"
+                keyHint: window.width >= window.dp(780) ? "Ctrl+O" : ""
+                onClicked: addMenu.popup(addSoundButton, 0, addSoundButton.height + window.dp(4))
+            }
             Item { Layout.fillWidth: true }
             SmallButton { objectName: "preferencesButton"; symbol: "settings"; hint: qsTr("Preferences…"); onClicked: preferences.open() }
             SmallButton { objectName: "appMenuButton"; symbol: "menu"; hint: qsTr("More"); onClicked: appMenu.open() }
@@ -575,7 +584,7 @@ ApplicationWindow {
                                 Item {
                                     width: window.nameWidth; height: parent.height
                                     PadIcon { x: window.dp(12); anchors.verticalCenter: parent.verticalCenter; width: window.dp(15); height: window.dp(15); symbol: backend.playing === soundRow.soundName ? "play" : "sound"; ink: soundRow.selected ? soundRow.rowInk : window.accent }
-                                    Text { x: window.dp(38); width: parent.width-window.dp(46); height: parent.height; text: soundRow.soundName; color: soundRow.rowInk; font: window.styledFont(window.font,soundRow.selected,0); verticalAlignment: Text.AlignVCenter; elide: Text.ElideRight }
+                                    Text { x: window.dp(38); width: parent.width-window.dp(46); height: parent.height; text: soundRow.soundName; textFormat: Text.PlainText; color: soundRow.rowInk; font: window.styledFont(window.font,soundRow.selected,0); verticalAlignment: Text.AlignVCenter; elide: Text.ElideRight }
                                 }
                                 Item {
                                     width: window.hotkeyWidth; height: parent.height
@@ -608,7 +617,7 @@ ApplicationWindow {
                 RowLayout {
                     Layout.fillWidth: true; spacing: window.dp(8)
                     PadIcon { symbol: "sound"; ink: window.mutedInk; Layout.preferredWidth: window.dp(14); Layout.preferredHeight: window.dp(14) }
-                    Label { Layout.fillWidth: true; text: window.hasSelection ? backend.clips[window.selected].path.split('/').pop() : qsTr("No sound selected"); color: window.mutedInk; font: window.monoFont; elide: Text.ElideMiddle }
+                    Label { Layout.fillWidth: true; text: window.selectedClip ? window.selectedClip.path.split('/').pop() : qsTr("No sound selected"); color: window.mutedInk; font: window.monoFont; elide: Text.ElideMiddle }
                     KeyCap { visible: window.width >= window.dp(760); label: "Enter" }
                     Label { visible: window.width >= window.dp(760); text: qsTr("Play sound"); color: window.mutedInk }
                     KeyCap { visible: window.width >= window.dp(900); label: "F2" }
@@ -666,7 +675,7 @@ ApplicationWindow {
                     ColumnLayout {
                         Layout.fillWidth: true; Layout.minimumWidth: window.dp(60); Layout.leftMargin: window.dp(8); spacing: 0
                         Label { text: (backend.paused ? qsTr("Paused") : backend.playing ? qsTr("Now playing") : qsTr("Selected sound")).toLocaleUpperCase(); color: window.mutedInk; font: window.monoFont; Layout.fillWidth: true; elide: Text.ElideRight }
-                        Label { objectName: "currentSoundLabel"; text: backend.playing || (window.hasSelection ? backend.clips[window.selected].name : qsTr("No sound selected")); color: window.ink; font.bold: true; Layout.fillWidth: true; elide: Text.ElideRight }
+                        Label { objectName: "currentSoundLabel"; text: backend.playing || (window.selectedClip ? window.selectedClip.name : qsTr("No sound selected")); textFormat: Text.PlainText; color: window.ink; font.bold: true; Layout.fillWidth: true; elide: Text.ElideRight }
                     }
                     SmallButton { objectName: "repeatButton"; symbol: "repeat"; hint: qsTr("Repeat current sound"); checked: backend.repeat; onClicked: backend.repeat = !backend.repeat }
                     SmallButton { objectName: "autoAdvanceButton"; symbol: "continuous"; hint: qsTr("Play tracks consecutively"); checked: backend.autoAdvance; onClicked: backend.autoAdvance = !backend.autoAdvance }
@@ -716,6 +725,11 @@ ApplicationWindow {
                 }
             }
         }
+    }
+    PadMenu {
+        id: addMenu; objectName: "addSoundMenu"
+        PadMenuItem { objectName: "addFromFile"; text: qsTr("From file…"); onTriggered: backend.chooseFiles() }
+        PadMenuItem { objectName: "addFromLink"; text: qsTr("From link…"); onTriggered: importDialog.open() }
     }
     PadMenu {
         id: appMenu; objectName: "appMenu"
@@ -843,6 +857,71 @@ ApplicationWindow {
             Label { Layout.fillWidth: true; wrapMode: Text.WordWrap; text: qsTr("Ctrl+Shift+Z redoes changes. Q quits. ? opens this help.") }
             PadButton { text: qsTr("Enable global shortcuts"); onClicked: { backend.enableHotkeys(); help.close() } }
             Label { Layout.fillWidth: true; wrapMode: Text.WordWrap; color: window.mutedInk; text: qsTr("You can listen without a call. To send sounds to others, keep the same microphone selected in the calling app. Microphone mute stops sending to others while local music keeps playing.") }
+            }
+        }
+    }
+    PadDialog {
+        id: importDialog; objectName: "soundCloudDialog"
+        title: qsTr("Add from SoundCloud")
+        anchors.centerIn: parent; width: Math.min(window.width-window.dp(40),window.dp(580))
+        modal: true; closeInHeader: true; footer: null
+        function startDownload() {
+            if (linkField.text.trim().length && !backend.downloading)
+                backend.downloadSoundCloud(linkField.text)
+        }
+        onOpened: { backend.clearDownloadError(); linkField.forceActiveFocus(); linkField.selectAll() }
+        onAboutToHide: backend.cancelDownload()
+        onClosed: library.forceActiveFocus()
+        Connections {
+            target: backend
+            function onDownloadAdded(index) {
+                search.clear()
+                window.selected = index
+                const row = window.rowForIndex(index)
+                if (row >= 0) library.positionViewAtIndex(row,ListView.Contain)
+                if (!backend.downloadError.length) {
+                    linkField.clear()
+                    importDialog.close()
+                }
+            }
+        }
+        contentItem: ColumnLayout {
+            spacing: window.dp(12)
+            TextField {
+                id: linkField; objectName: "soundCloudLinkField"
+                Layout.fillWidth: true
+                readOnly: backend.downloading
+                selectByMouse: true; inputMethodHints: Qt.ImhUrlCharactersOnly | Qt.ImhNoPredictiveText
+                Accessible.name: qsTr("SoundCloud track or playlist link")
+                color: window.ink; selectionColor: window.selection; selectedTextColor: window.selectionInk
+                padding: window.dp(10)
+                background: Rectangle { color: window.paper; border.color: linkField.activeFocus ? window.accent : window.rule; radius: Math.min(3,theme.radius) }
+                onAccepted: importDialog.startDownload()
+            }
+            ProgressBar {
+                Layout.fillWidth: true
+                visible: backend.downloading
+                indeterminate: backend.downloadProgress < 0
+                value: Math.max(0, backend.downloadProgress)
+            }
+            Label {
+                visible: backend.downloading && backend.downloadedTracks > 0
+                text: qsTr("Downloaded: %1").arg(backend.downloadedTracks)
+                color: window.mutedInk
+            }
+            Label {
+                Layout.fillWidth: true
+                visible: backend.downloadError.length > 0
+                text: backend.downloadError; textFormat: Text.PlainText
+                color: window.red; wrapMode: Text.WordWrap
+            }
+            PadButton {
+                objectName: "downloadSoundButton"
+                Layout.alignment: Qt.AlignRight
+                primary: true
+                enabled: linkField.text.trim().length > 0 && !backend.downloading
+                text: backend.downloading ? qsTr("Downloading…") : qsTr("Download and add")
+                onClicked: importDialog.startDownload()
             }
         }
     }

@@ -5,8 +5,10 @@
 #include <QElapsedTimer>
 #include <QObject>
 #include <QProcess>
+#include <QTemporaryDir>
 #include <QTimer>
 #include <QVariantList>
+#include <memory>
 
 class Backend : public QObject {
     Q_OBJECT
@@ -32,6 +34,10 @@ class Backend : public QObject {
     Q_PROPERTY(bool connected READ connected NOTIFY changed)
     Q_PROPERTY(bool sending READ sending NOTIFY changed)
     Q_PROPERTY(bool listening READ listening NOTIFY changed)
+    Q_PROPERTY(bool downloading READ downloading NOTIFY downloadChanged)
+    Q_PROPERTY(double downloadProgress READ downloadProgress NOTIFY downloadChanged)
+    Q_PROPERTY(int downloadedTracks READ downloadedTracks NOTIFY downloadChanged)
+    Q_PROPERTY(QString downloadError READ downloadError NOTIFY downloadChanged)
 public:
     explicit Backend(bool offline = false, QObject *parent = nullptr);
     ~Backend() override;
@@ -57,6 +63,10 @@ public:
     bool connected() const { return m_connected; }
     bool sending() const { return m_sending; }
     bool listening() const { return m_listening; }
+    bool downloading() const { return bool(m_downloadDir); }
+    double downloadProgress() const { return m_downloadProgress; }
+    int downloadedTracks() const { return int(m_downloadResults.size()); }
+    QString downloadError() const { return m_downloadError; }
     void setMicrophone(const QString &name);
     void setTarget(const QString &serial);
     void setMicrophoneVolume(double value);
@@ -67,6 +77,9 @@ public:
     Q_INVOKABLE bool seek(double progress);
     Q_INVOKABLE void seekBy(double seconds);
     Q_INVOKABLE void chooseFiles();
+    Q_INVOKABLE void downloadSoundCloud(const QString &link);
+    Q_INVOKABLE void cancelDownload();
+    Q_INVOKABLE void clearDownloadError();
     Q_INVOKABLE void addUrls(const QStringList &urls);
     Q_INVOKABLE void play(int index);
     Q_INVOKABLE void preview(int index);
@@ -85,13 +98,18 @@ signals:
     void changed();
     void openRequested();
     void clipStarted(int index);
+    void downloadChanged();
+    void downloadAdded(int index);
 private slots:
     void fileResponse(uint response, const QVariantMap &results);
 private:
-    void save();
+    bool save();
     void fail(const QString &message);
     void updateRoutes();
     void remember();
+    void readDownloadOutput();
+    void finishDownload(bool success);
+    int addDownloadedTracks();
     enum class OutputMode { Normal, Microphone, Headphones };
     void playClip(int index, OutputMode mode);
     void finishPlayback();
@@ -103,6 +121,15 @@ private:
     QString m_microphone, m_target, m_status, m_error, m_playing, m_dataPath;
     QString m_pickerPath;
     QProcess m_dump, m_hotkeys;
+    QProcess m_download;
+    QTimer m_downloadTimeout;
+    std::unique_ptr<QTemporaryDir> m_downloadDir;
+    QByteArray m_downloadOutput;
+    QList<QByteArray> m_downloadResults;
+    QString m_downloadError;
+    double m_downloadProgress = -1;
+    int m_downloadTrack = 0, m_downloadTotal = 0;
+    bool m_downloadCanceled = false, m_downloadHadErrors = false;
     AudioDecoder m_decoder;
     QTimer m_poll, m_tick, m_dumpTimeout;
     OutputMode m_outputMode = OutputMode::Normal;

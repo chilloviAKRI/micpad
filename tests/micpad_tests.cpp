@@ -147,6 +147,149 @@ private slots:
         QStandardPaths::setTestModeEnabled(true);
         QQuickStyle::setStyle("Material");
     }
+    void soundCloudImportAcceptsShareLinksAndPersistsPlaylists() {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const auto oldPath = qgetenv("PATH");
+        const auto oldData = qgetenv("XDG_DATA_HOME");
+        const auto restore = qScopeGuard([&] {
+            if (oldData.isNull()) qunsetenv("XDG_DATA_HOME"); else qputenv("XDG_DATA_HOME",oldData);
+            qputenv("PATH",oldPath);
+            QStandardPaths::setTestModeEnabled(true);
+        });
+        QStandardPaths::setTestModeEnabled(false);
+        qputenv("XDG_DATA_HOME",QFile::encodeName(dir.path()));
+        const auto fakeGraph = dir.filePath("bin/pw-dump");
+        QVERIFY(saveFile(fakeGraph,"#!/bin/sh\nprintf '[]\\n'\n"));
+        QVERIFY(QFile::setPermissions(fakeGraph,QFile::ReadOwner|QFile::WriteOwner|QFile::ExeOwner));
+        qputenv("PATH",QFile::encodeName(dir.filePath("bin"))+':'+oldPath);
+        const QString liveLink = qEnvironmentVariable("MICPAD_TEST_SOUNDCLOUD_URL");
+        const int expectedLiveTracks = qEnvironmentVariableIntValue("MICPAD_TEST_SOUNDCLOUD_COUNT");
+        if (liveLink.isEmpty()) {
+            const auto stub = dir.filePath("bin/yt-dlp");
+            QVERIFY(saveFile(stub, R"sh(#!/bin/sh
+for arg do link="$arg"; done
+printf '%s\n' "$link" > "$XDG_DATA_HOME/last-link"
+emit_track() {
+    printf 'audio fixture' > "track-$1.wav"
+    printf 'track:{"id":"%s","title":"%s","filepath":"track-%s.wav"}\n' "$1" "$2" "$1"
+}
+case "$link" in
+    */failure) exit 1 ;;
+    */cancel) exec sleep 30 ;;
+    */sets/partial)
+        printf 'item:1/3\nprogress: 100%%\n'
+        emit_track 420 'First playlist track'
+        printf 'ERROR: Track unavailable\n'
+        printf 'item:3/3\nprogress: 100%%\n'
+        emit_track 314 'Last playlist track'
+        exit 1 ;;
+esac
+while IFS= read -r archived; do
+    if [ "$archived" = 'soundcloud 123' ]; then exit 0; fi
+done < archive.txt
+printf 'progress: 50%%\n'
+emit_track 123 'Example imported sound'
+)sh"));
+            QVERIFY(QFile::setPermissions(stub,QFile::ReadOwner|QFile::WriteOwner|QFile::ExeOwner));
+        }
+
+        Backend backend;
+        Theme theme(dir.path()); Translator translator(dir.filePath("language"));
+        QQmlApplicationEngine engine;
+        engine.rootContext()->setContextProperty("backend",&backend);
+        engine.rootContext()->setContextProperty("theme",&theme);
+        engine.rootContext()->setContextProperty("translator",&translator);
+        int warnings = 0;
+        connect(&engine,&QQmlEngine::warnings,&engine,[&](const auto &errors) { warnings += errors.size(); });
+        engine.load(QUrl("qrc:/Main.qml")); QVERIFY(!engine.rootObjects().isEmpty());
+        auto window = qobject_cast<QQuickWindow *>(engine.rootObjects().first()); QVERIFY(window);
+        auto add = window->findChild<QQuickItem *>("addSoundButton"); QVERIFY(add);
+        auto menu = window->findChild<QObject *>("addSoundMenu"); QVERIFY(menu);
+        auto file = window->findChild<QQuickItem *>("addFromFile"); QVERIFY(file);
+        auto link = window->findChild<QQuickItem *>("addFromLink"); QVERIFY(link);
+        auto dialog = window->findChild<QObject *>("soundCloudDialog"); QVERIFY(dialog);
+        auto field = window->findChild<QQuickItem *>("soundCloudLinkField"); QVERIFY(field);
+        auto submit = window->findChild<QQuickItem *>("downloadSoundButton"); QVERIFY(submit);
+        QTest::qWait(60); window->requestActivate();
+        auto click = [window](QQuickItem *item) {
+            QTest::mouseClick(window,Qt::LeftButton,{},item->mapToScene(item->boundingRect().center()).toPoint());
+        };
+        click(add); QTRY_VERIFY(menu->property("opened").toBool());
+        QVERIFY(file->isVisible()); QVERIFY(link->isVisible());
+        click(link); QTRY_VERIFY(dialog->property("opened").toBool());
+        field->setProperty("text","https://soundcloud.com.example.org/artist/song");
+        click(submit); QVERIFY(!backend.downloading()); QVERIFY(!backend.downloadError().isEmpty());
+        QVERIFY(backend.clips().isEmpty());
+        field->setProperty("text",liveLink.isEmpty() ? QStringLiteral("https://soundcloud.com/artist/song") : liveLink);
+        QSignalSpy added(&backend,&Backend::downloadAdded);
+        QTest::keyClick(window,Qt::Key_Return);
+        if (!backend.downloading() && added.isEmpty()) click(submit);
+        QTRY_VERIFY_WITH_TIMEOUT(!backend.downloading(),180000);
+        QVERIFY2(backend.downloadError().isEmpty(),qPrintable(backend.downloadError()));
+        QCOMPARE(added.size(),1);
+        QTRY_VERIFY(!dialog->property("visible").toBool());
+        const auto clips = backend.clips();
+        QCOMPARE(clips.size(),qMax(1,expectedLiveTracks));
+        const auto clip = clips.first().toMap();
+        const QFileInfo audio(clip.value("path").toString());
+        QVERIFY(audio.isFile()); QVERIFY(audio.size() > 0);
+        Backend reopened(true);
+        QCOMPARE(reopened.clips(),clips);
+        QCOMPARE(window->property("selected").toInt(),0);
+        if (!liveLink.isEmpty()) {
+            for (const auto &entry : clips) {
+                QProcess decoder;
+                decoder.start("ffmpeg",{"-v","error","-i",entry.toMap().value("path").toString(),"-f","null","-"});
+                QVERIFY(decoder.waitForFinished(15000)); QCOMPARE(decoder.exitCode(),0);
+            }
+        } else {
+            QCOMPARE(clip.value("name").toString(),"Example imported sound");
+            backend.downloadSoundCloud("https://soundcloud.com/artist/song");
+            QTRY_VERIFY(!backend.downloading()); QVERIFY(!backend.downloadError().isEmpty());
+            QCOMPARE(backend.clips(),clips);
+            backend.downloadSoundCloud("https://soundcloud.com/artist/failure");
+            QTRY_VERIFY(!backend.downloading()); QVERIFY(!backend.downloadError().isEmpty());
+            QCOMPARE(backend.clips(),clips);
+            backend.downloadSoundCloud("https://soundcloud.com/artist/cancel");
+            QVERIFY(backend.downloading()); backend.cancelDownload();
+            QTRY_VERIFY(!backend.downloading()); QVERIFY(backend.downloadError().isEmpty());
+            QCOMPARE(backend.clips(),clips);
+
+            const QList<QPair<QString, QByteArray>> formats{
+                {"http://m.soundcloud.com/artist/song/?in=artist%2Fsets%2Fplaylist#t=2:30", "https://soundcloud.com/artist/song"},
+                {"www.soundcloud.com/artist/song/s-test?utm_source=copy", "https://soundcloud.com/artist/song/s-test"},
+                {"https://on.soundcloud.com/AbC", "https://on.soundcloud.com/AbC"},
+                {"https://snd.sc/AbC", "https://snd.sc/AbC"},
+                {"https://api-v2.soundcloud.com/tracks/soundcloud%3Atracks%3A123?secret_token=s-test&client_id=unused", "https://api-v2.soundcloud.com/tracks/123?secret_token=s-test"},
+                {"soundcloud://tracks:123", "https://api.soundcloud.com/tracks/123"},
+                {"soundcloud://sounds:123", "https://api.soundcloud.com/tracks/123"},
+                {"https://w.soundcloud.com/player/?url=https%3A%2F%2Fapi.soundcloud.com%2Fplaylists%2F42&secret_token=s-test", "https://api.soundcloud.com/playlists/42?secret_token=s-test"},
+                {"https://soundcloud.app.goo.gl/?link=https%3A%2F%2Fsoundcloud.com%2Fartist%2Fsets%2Falbum", "https://soundcloud.com/artist/sets/album"},
+            };
+            for (const auto &[input, expected] : formats) {
+                backend.downloadSoundCloud(input);
+                QVERIFY2(backend.downloading(),qPrintable(input));
+                QTRY_VERIFY(!backend.downloading());
+                QFile forwarded(dir.filePath("last-link")); QVERIFY(forwarded.open(QIODevice::ReadOnly));
+                QCOMPARE(forwarded.readAll().trimmed(),expected);
+                QCOMPARE(backend.clips(),clips);
+            }
+            backend.downloadSoundCloud("https://w.soundcloud.com/player/?url=https://example.org/audio");
+            QVERIFY(!backend.downloading()); QCOMPARE(backend.clips(),clips);
+            backend.downloadSoundCloud("https://soundcloud.com/artist/sets/partial");
+            QTRY_VERIFY(!backend.downloading());
+            QCOMPARE(backend.clips().size(),3);
+            QCOMPARE(backend.clips().at(1).toMap().value("name").toString(),"First playlist track");
+            QCOMPARE(backend.clips().at(2).toMap().value("name").toString(),"Last playlist track");
+            QVERIFY(!backend.downloadError().isEmpty());
+            Backend playlistReopened(true);
+            QCOMPARE(playlistReopened.clips(),backend.clips());
+            backend.undo(); QCOMPARE(backend.clips(),clips);
+        }
+        QVERIFY(QDir(audio.absolutePath()).entryList({".import-*"},QDir::Dirs|QDir::Hidden).isEmpty());
+        QCOMPARE(warnings,0);
+    }
     void playbackQueueFollowsTheVisibleOrderAndStopsAtTheEndOrOnCancel() {
         QVariantList clips{
             QVariantMap{{"name","First"},{"path","/sounds/first.wav"}},

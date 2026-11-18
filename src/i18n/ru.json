@@ -145,5 +145,20 @@
   "Built-in theme": "Встроенная тема",
   "Cannot save the appearance preference.": "Не удалось сохранить настройки оформления.",
   "Unknown theme.": "Неизвестная тема.",
-  "Play tracks consecutively": "Проигрывать треки подряд"
+  "Play tracks consecutively": "Проигрывать треки подряд",
+  "From file…": "Из файла…",
+  "From link…": "По ссылке…",
+  "Add from SoundCloud": "Добавить из SoundCloud",
+  "Downloading…": "Скачивание…",
+  "Download and add": "Скачать и добавить",
+  "Install yt-dlp to add tracks from SoundCloud.": "Установи yt-dlp, чтобы добавлять треки из SoundCloud.",
+  "Cannot create the download folder.": "Не удалось создать папку загрузок.",
+  "Could not start yt-dlp.": "Не удалось запустить yt-dlp.",
+  "SoundCloud download timed out.": "Время ожидания загрузки с SoundCloud истекло.",
+  "SoundCloud track or playlist link": "Ссылка на трек или плейлист SoundCloud",
+  "Paste a SoundCloud track or playlist link.": "Вставь ссылку на трек или плейлист SoundCloud.",
+  "Added available tracks. Some tracks could not be downloaded.": "Доступные треки добавлены. Некоторые треки не удалось скачать.",
+  "Could not import audio from this SoundCloud link.": "Не удалось загрузить аудио по этой ссылке SoundCloud.",
+  "No new SoundCloud tracks to add.": "По этой ссылке нет новых треков для добавления.",
+  "Downloaded: %1": "Скачано: %1"
 }
