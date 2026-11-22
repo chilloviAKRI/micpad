@@ -862,12 +862,18 @@ ApplicationWindow {
     }
     PadDialog {
         id: importDialog; objectName: "soundCloudDialog"
-        title: qsTr("Add from SoundCloud")
+        title: qsTr("Add from link")
         anchors.centerIn: parent; width: Math.min(window.width-window.dp(40),window.dp(580))
         modal: true; closeInHeader: true; footer: null
         function startDownload() {
             if (linkField.text.trim().length && !backend.downloading)
-                backend.downloadSoundCloud(linkField.text)
+                backend.downloadLink(linkField.text)
+        }
+        function showInLibrary(index) {
+            search.clear()
+            window.selected = index
+            const row = window.rowForIndex(index)
+            if (row >= 0) library.positionViewAtIndex(row,ListView.Contain)
         }
         onOpened: { backend.clearDownloadError(); linkField.forceActiveFocus(); linkField.selectAll() }
         onAboutToHide: backend.cancelDownload()
@@ -875,10 +881,7 @@ ApplicationWindow {
         Connections {
             target: backend
             function onDownloadAdded(index) {
-                search.clear()
-                window.selected = index
-                const row = window.rowForIndex(index)
-                if (row >= 0) library.positionViewAtIndex(row,ListView.Contain)
+                importDialog.showInLibrary(index)
                 if (!backend.downloadError.length) {
                     linkField.clear()
                     importDialog.close()
@@ -892,11 +895,17 @@ ApplicationWindow {
                 Layout.fillWidth: true
                 readOnly: backend.downloading
                 selectByMouse: true; inputMethodHints: Qt.ImhUrlCharactersOnly | Qt.ImhNoPredictiveText
-                Accessible.name: qsTr("SoundCloud track or playlist link")
+                Accessible.name: qsTr("SoundCloud, YouTube, or Spotify link")
                 color: window.ink; selectionColor: window.selection; selectedTextColor: window.selectionInk
                 padding: window.dp(10)
                 background: Rectangle { color: window.paper; border.color: linkField.activeFocus ? window.accent : window.rule; radius: Math.min(3,theme.radius) }
                 onAccepted: importDialog.startDownload()
+            }
+            Label {
+                Layout.fillWidth: true
+                visible: /spotify[:.]|spoti\.fi/i.test(linkField.text)
+                text: qsTr("Spotify links use matching audio from YouTube.")
+                color: window.mutedInk; wrapMode: Text.WordWrap
             }
             ProgressBar {
                 Layout.fillWidth: true
@@ -913,15 +922,27 @@ ApplicationWindow {
                 Layout.fillWidth: true
                 visible: backend.downloadError.length > 0
                 text: backend.downloadError; textFormat: Text.PlainText
-                color: window.red; wrapMode: Text.WordWrap
+                color: backend.existingDownloadIndex >= 0 ? window.mutedInk : window.red
+                wrapMode: Text.WordWrap
             }
-            PadButton {
-                objectName: "downloadSoundButton"
+            RowLayout {
                 Layout.alignment: Qt.AlignRight
-                primary: true
-                enabled: linkField.text.trim().length > 0 && !backend.downloading
-                text: backend.downloading ? qsTr("Downloading…") : qsTr("Download and add")
-                onClicked: importDialog.startDownload()
+                PadButton {
+                    objectName: "showExistingSoundButton"
+                    visible: backend.existingDownloadIndex >= 0
+                    text: qsTr("Show in library")
+                    onClicked: {
+                        importDialog.showInLibrary(backend.existingDownloadIndex)
+                        importDialog.close()
+                    }
+                }
+                PadButton {
+                    objectName: "downloadSoundButton"
+                    primary: true
+                    enabled: linkField.text.trim().length > 0 && !backend.downloading
+                    text: backend.downloading ? qsTr("Downloading…") : qsTr("Download and add")
+                    onClicked: importDialog.startDownload()
+                }
             }
         }
     }

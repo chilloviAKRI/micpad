@@ -1,12 +1,12 @@
 pkgname=micpad
 pkgver=0.1.0
-pkgrel=24
+pkgrel=26
 pkgdesc='Soundboard that mixes into existing PipeWire capture streams'
 arch=('x86_64' 'aarch64')
 license=('MIT')
 depends=('qt6-base' 'qt6-declarative' 'qt6-multimedia' 'qt6-svg' 'qt6-wayland' 'pipewire' 'ffmpeg' 'fontconfig' 'python')
 makedepends=('base-devel')
-optdepends=('yt-dlp: import tracks from SoundCloud')
+optdepends=('yt-dlp: import audio from links' 'nodejs: process YouTube audio links with yt-dlp')
 
 build() {
     cd "$startdir/.."

@@ -7,3 +7,5 @@ INCLUDEPATH += ../src
 SOURCES += micpad_tests.cpp ../src/graph.cpp ../src/audioengine.cpp ../src/audiodecoder.cpp ../src/backend.cpp ../src/theme.cpp ../src/translator.cpp
 HEADERS += ../src/graph.h ../src/audioengine.h ../src/audiodecoder.h ../src/backend.h ../src/levels.h ../src/playbackqueue.h ../src/theme.h ../src/translator.h
 RESOURCES += ../src/resources.qrc
+HEADERS += ../src/linkimport.h
+SOURCES += ../src/linkimport.cpp

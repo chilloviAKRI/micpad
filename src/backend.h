@@ -1,9 +1,11 @@
 #pragma once
 #include "audioengine.h"
 #include "graph.h"
+#include "linkimport.h"
 #include "playbackqueue.h"
 #include <QElapsedTimer>
 #include <QObject>
+#include <QNetworkAccessManager>
 #include <QProcess>
 #include <QTemporaryDir>
 #include <QTimer>
@@ -38,6 +40,7 @@ class Backend : public QObject {
     Q_PROPERTY(double downloadProgress READ downloadProgress NOTIFY downloadChanged)
     Q_PROPERTY(int downloadedTracks READ downloadedTracks NOTIFY downloadChanged)
     Q_PROPERTY(QString downloadError READ downloadError NOTIFY downloadChanged)
+    Q_PROPERTY(int existingDownloadIndex READ existingDownloadIndex NOTIFY downloadChanged)
 public:
     explicit Backend(bool offline = false, QObject *parent = nullptr);
     ~Backend() override;
@@ -67,6 +70,7 @@ public:
     double downloadProgress() const { return m_downloadProgress; }
     int downloadedTracks() const { return int(m_downloadResults.size()); }
     QString downloadError() const { return m_downloadError; }
+    int existingDownloadIndex() const { return m_existingDownloadIndex; }
     void setMicrophone(const QString &name);
     void setTarget(const QString &serial);
     void setMicrophoneVolume(double value);
@@ -77,7 +81,7 @@ public:
     Q_INVOKABLE bool seek(double progress);
     Q_INVOKABLE void seekBy(double seconds);
     Q_INVOKABLE void chooseFiles();
-    Q_INVOKABLE void downloadSoundCloud(const QString &link);
+    Q_INVOKABLE void downloadLink(const QString &link);
     Q_INVOKABLE void cancelDownload();
     Q_INVOKABLE void clearDownloadError();
     Q_INVOKABLE void addUrls(const QStringList &urls);
@@ -108,8 +112,12 @@ private:
     void updateRoutes();
     void remember();
     void readDownloadOutput();
+    void downloadProcessFinished(bool success);
     void finishDownload(bool success);
     int addDownloadedTracks();
+    void startMediaDownload(const QUrl &url);
+    void fetchSpotifyMetadata(const QUrl &url, int redirects = 0);
+    void findNextSpotifyTrack();
     enum class OutputMode { Normal, Microphone, Headphones };
     void playClip(int index, OutputMode mode);
     void finishPlayback();
@@ -122,11 +130,21 @@ private:
     QString m_pickerPath;
     QProcess m_dump, m_hotkeys;
     QProcess m_download;
+    QNetworkAccessManager m_downloadNetwork;
+    QNetworkReply *m_spotifyReply = nullptr;
     QTimer m_downloadTimeout;
     std::unique_ptr<QTemporaryDir> m_downloadDir;
     QByteArray m_downloadOutput;
     QList<QByteArray> m_downloadResults;
+    QHash<QString, QString> m_downloadArchive;
+    QString m_downloader, m_downloadSource;
+    QByteArray m_spotifyOutput;
+    QList<SpotifyTrack> m_spotifyTracks;
+    qsizetype m_spotifyIndex = 0;
+    bool m_spotifySearching = false;
+    QString m_existingDownloadPath;
     QString m_downloadError;
+    int m_existingDownloadIndex = -1;
     double m_downloadProgress = -1;
     int m_downloadTrack = 0, m_downloadTotal = 0;
     bool m_downloadCanceled = false, m_downloadHadErrors = false;

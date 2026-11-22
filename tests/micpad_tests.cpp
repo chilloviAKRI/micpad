@@ -176,6 +176,7 @@ emit_track() {
 }
 case "$link" in
     */failure) exit 1 ;;
+    */sets/empty) exit 0 ;;
     */cancel) exec sleep 30 ;;
     */sets/partial)
         printf 'item:1/3\nprogress: 100%%\n'
@@ -186,7 +187,10 @@ case "$link" in
         exit 1 ;;
 esac
 while IFS= read -r archived; do
-    if [ "$archived" = 'soundcloud 123' ]; then exit 0; fi
+    if [ "$archived" = 'soundcloud 123' ]; then
+        printf '[download] 123: Example imported sound has already been recorded in the archive\n'
+        exit 0
+    fi
 done < archive.txt
 printf 'progress: 50%%\n'
 emit_track 123 'Example imported sound'
@@ -209,6 +213,7 @@ emit_track 123 'Example imported sound'
         auto file = window->findChild<QQuickItem *>("addFromFile"); QVERIFY(file);
         auto link = window->findChild<QQuickItem *>("addFromLink"); QVERIFY(link);
         auto dialog = window->findChild<QObject *>("soundCloudDialog"); QVERIFY(dialog);
+        QCOMPARE(dialog->property("title").toString(),"Add from link");
         auto field = window->findChild<QQuickItem *>("soundCloudLinkField"); QVERIFY(field);
         auto submit = window->findChild<QQuickItem *>("downloadSoundButton"); QVERIFY(submit);
         QTest::qWait(60); window->requestActivate();
@@ -245,13 +250,26 @@ emit_track 123 'Example imported sound'
             }
         } else {
             QCOMPARE(clip.value("name").toString(),"Example imported sound");
-            backend.downloadSoundCloud("https://soundcloud.com/artist/song");
+            click(add); QTRY_VERIFY(menu->property("opened").toBool());
+            click(link); QTRY_VERIFY(dialog->property("opened").toBool());
+            field->setProperty("text","https://soundcloud.com/artist/song");
+            click(submit);
+            QTRY_VERIFY(!backend.downloading());
+            QCOMPARE(backend.existingDownloadIndex(),0);
+            QCOMPARE(backend.downloadError(),"The audio from this link is already in your library.");
+            auto showExisting = window->findChild<QQuickItem *>("showExistingSoundButton"); QVERIFY(showExisting);
+            QVERIFY(showExisting->isVisible()); click(showExisting);
+            QTRY_VERIFY(!dialog->property("visible").toBool());
+            QCOMPARE(window->property("selected").toInt(),0);
+            QCOMPARE(backend.clips(),clips);
+            backend.downloadLink("https://soundcloud.com/artist/sets/empty");
+            QTRY_VERIFY(!backend.downloading());
+            QCOMPARE(backend.existingDownloadIndex(),-1);
+            QCOMPARE(backend.downloadError(),"No downloadable tracks were found for this link.");
+            backend.downloadLink("https://soundcloud.com/artist/failure");
             QTRY_VERIFY(!backend.downloading()); QVERIFY(!backend.downloadError().isEmpty());
             QCOMPARE(backend.clips(),clips);
-            backend.downloadSoundCloud("https://soundcloud.com/artist/failure");
-            QTRY_VERIFY(!backend.downloading()); QVERIFY(!backend.downloadError().isEmpty());
-            QCOMPARE(backend.clips(),clips);
-            backend.downloadSoundCloud("https://soundcloud.com/artist/cancel");
+            backend.downloadLink("https://soundcloud.com/artist/cancel");
             QVERIFY(backend.downloading()); backend.cancelDownload();
             QTRY_VERIFY(!backend.downloading()); QVERIFY(backend.downloadError().isEmpty());
             QCOMPARE(backend.clips(),clips);
@@ -268,16 +286,16 @@ emit_track 123 'Example imported sound'
                 {"https://soundcloud.app.goo.gl/?link=https%3A%2F%2Fsoundcloud.com%2Fartist%2Fsets%2Falbum", "https://soundcloud.com/artist/sets/album"},
             };
             for (const auto &[input, expected] : formats) {
-                backend.downloadSoundCloud(input);
+                backend.downloadLink(input);
                 QVERIFY2(backend.downloading(),qPrintable(input));
                 QTRY_VERIFY(!backend.downloading());
                 QFile forwarded(dir.filePath("last-link")); QVERIFY(forwarded.open(QIODevice::ReadOnly));
                 QCOMPARE(forwarded.readAll().trimmed(),expected);
                 QCOMPARE(backend.clips(),clips);
             }
-            backend.downloadSoundCloud("https://w.soundcloud.com/player/?url=https://example.org/audio");
+            backend.downloadLink("https://w.soundcloud.com/player/?url=https://example.org/audio");
             QVERIFY(!backend.downloading()); QCOMPARE(backend.clips(),clips);
-            backend.downloadSoundCloud("https://soundcloud.com/artist/sets/partial");
+            backend.downloadLink("https://soundcloud.com/artist/sets/partial");
             QTRY_VERIFY(!backend.downloading());
             QCOMPARE(backend.clips().size(),3);
             QCOMPARE(backend.clips().at(1).toMap().value("name").toString(),"First playlist track");
@@ -289,6 +307,37 @@ emit_track 123 'Example imported sound'
         }
         QVERIFY(QDir(audio.absolutePath()).entryList({".import-*"},QDir::Dirs|QDir::Hidden).isEmpty());
         QCOMPARE(warnings,0);
+    }
+    void linkedMusicPreservesPlaylistOrderAndRejectsWrongYoutubeVersions() {
+        QCOMPARE(youtubeImportUrl("https://music.youtube.com/playlist?list=PL_Example&si=tracking"),
+                 QUrl("https://www.youtube.com/playlist?list=PL_Example"));
+        QCOMPARE(youtubeImportUrl("https://youtu.be/aBcD-123_Xy?list=PL_Example"),
+                 QUrl("https://www.youtube.com/watch?v=aBcD-123_Xy"));
+        QVERIFY(youtubeImportUrl("https://youtube.com.example.org/watch?v=aBcD-123_Xy").isEmpty());
+        QCOMPARE(spotifyImportUrl("https://open.spotify.com/intl-ru/playlist/0123456789abcdefghijkl?si=tracking"),
+                 QUrl("https://open.spotify.com/embed/playlist/0123456789abcdefghijkl"));
+        QVERIFY(spotifyImportUrl("https://open.spotify.com.example.org/track/0123456789abcdefghijkl").isEmpty());
+
+        const auto tracks = spotifyTracks(R"html(<script id="__NEXT_DATA__" type="application/json">
+          {"props":{"pageProps":{"state":{"data":{"entity":{"type":"playlist","trackList":[
+            {"uri":"spotify:track:a","title":"Rêve","subtitle":"Chloé, Another Artist","duration":180000},
+            {"uri":"spotify:episode:ignored","title":"A podcast","duration":400000},
+            {"uri":"spotify:track:b","title":"Second","subtitle":"Other Artist","duration":130000}
+          ]}}}}}}
+          </script>)html");
+        QCOMPARE(tracks.size(),2);
+        QCOMPARE(tracks.first().title,"Rêve"); QCOMPARE(tracks.first().artist,"Chloé");
+        QCOMPARE(tracks.last().title,"Second");
+        const QByteArray unrelated = R"json({"entries":[
+          {"id":"12345678901","title":"Rêve by Chloé (Cover)","channel":"Cover Band","duration":180},
+          {"id":"12345678902","title":"Chloé - Rêve","channel":"Chloé","duration":245},
+          {"id":"12345678903","title":"Rêve","channel":"Other Artist","duration":180}
+        ]})json";
+        QVERIFY(matchingYoutubeId(tracks.first(),unrelated).isEmpty());
+        QCOMPARE(matchingYoutubeId(tracks.first(),R"json({"entries":[
+          {"id":"12345678901","title":"Rêve by Chloé (Cover)","channel":"Cover Band","duration":180},
+          {"id":"12345678904","title":"Reve","channel":"Chloe - Topic","duration":182}
+        ]})json"),"12345678904");
     }
     void playbackQueueFollowsTheVisibleOrderAndStopsAtTheEndOrOnCancel() {
         QVariantList clips{

@@ -11,6 +11,8 @@
 #include <QFileInfo>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QNetworkReply>
+#include <QNetworkRequest>
 #include <QRegularExpression>
 #include <QSaveFile>
 #include <QSet>
@@ -22,7 +24,7 @@
 #include <cmath>
 
 namespace {
-const QRegularExpression soundCloudFile(R"(^soundcloud-([0-9]{1,20})\.[a-zA-Z0-9]+$)");
+const QRegularExpression importedFile(R"(^(soundcloud|youtube)-([A-Za-z0-9_-]+)\.[a-zA-Z0-9]+$)");
 
 bool soundCloudShortHost(const QString &host) {
     return host == "on.soundcloud.com" || host == "snd.sc" || host == "soundcloud.app.goo.gl";
@@ -140,7 +142,7 @@ Backend::Backend(bool offline, QObject *parent) : QObject(parent), m_offline(off
     m_downloadTimeout.setInterval(90000);
     connect(&m_download, &QProcess::readyRead, this, &Backend::readDownloadOutput);
     connect(&m_download, &QProcess::finished, this, [this](int code, QProcess::ExitStatus status) {
-        finishDownload(status == QProcess::NormalExit && code == 0);
+        downloadProcessFinished(status == QProcess::NormalExit && code == 0);
     });
     connect(&m_download, &QProcess::errorOccurred, this, [this](QProcess::ProcessError error) {
         if (error != QProcess::FailedToStart) return;
@@ -148,8 +150,9 @@ Backend::Backend(bool offline, QObject *parent) : QObject(parent), m_offline(off
         finishDownload(false);
     });
     connect(&m_downloadTimeout, &QTimer::timeout, this, [this] {
-        m_downloadError = tr("SoundCloud download timed out.");
-        m_download.kill();
+        m_downloadError = tr("Download timed out.");
+        if (m_spotifyReply) m_spotifyReply->abort();
+        else m_download.kill();
     });
     connect(&m_audio, &AudioEngine::error, this, [this](const QString &message) { stop(); fail(message); });
     m_poll.setInterval(350);
@@ -212,6 +215,10 @@ Backend::Backend(bool offline, QObject *parent) : QObject(parent), m_offline(off
 }
 
 Backend::~Backend() {
+    if (m_spotifyReply) {
+        m_spotifyReply->disconnect(this);
+        m_spotifyReply->abort();
+    }
     if (downloading()) {
         m_download.disconnect(this);
         m_download.kill();
@@ -376,93 +383,207 @@ void Backend::fileResponse(uint response, const QVariantMap &results) {
     if (response == 0) addUrls(qdbus_cast<QStringList>(results.value("uris")));
 }
 
-void Backend::downloadSoundCloud(const QString &link) {
+void Backend::downloadLink(const QString &link) {
     if (downloading()) return;
-    const QUrl url = soundCloudUrl(link);
-    if (url.isEmpty()) {
-        m_downloadError = tr("Paste a SoundCloud track or playlist link.");
-    } else if (const auto downloader = QStandardPaths::findExecutable("yt-dlp"); downloader.isEmpty()) {
-        m_downloadError = tr("Install yt-dlp to add tracks from SoundCloud.");
+    m_existingDownloadIndex = -1;
+    m_existingDownloadPath.clear();
+    m_downloadArchive.clear();
+    const auto spotify = spotifyImportUrl(link);
+    const auto youtube = youtubeImportUrl(link);
+    const auto url = youtube.isEmpty() ? soundCloudUrl(link) : youtube;
+    if (url.isEmpty() && spotify.isEmpty()) {
+        m_downloadError = tr("Paste a track or playlist link from SoundCloud, YouTube, or Spotify.");
+        emit downloadChanged();
+        return;
+    }
+    m_downloader = QStandardPaths::findExecutable("yt-dlp");
+    if (m_downloader.isEmpty()) {
+        m_downloadError = tr("Install yt-dlp to import audio from a link.");
+        emit downloadChanged();
+        return;
+    }
+
+    const QDir directory(m_dataPath + "/downloads");
+    if (!QDir().mkpath(directory.absolutePath())) {
+        m_downloadError = tr("Cannot create the download folder.");
+        emit downloadChanged();
+        return;
+    }
+    auto staging = std::make_unique<QTemporaryDir>(directory.filePath(".import-XXXXXX"));
+    QFile archive(staging->filePath("archive.txt"));
+    if (!staging->isValid() || !archive.open(QIODevice::WriteOnly)) {
+        m_downloadError = tr("Cannot create the download folder.");
+        emit downloadChanged();
+        return;
+    }
+    QByteArray entries;
+    const auto downloadDirectory = directory.canonicalPath();
+    m_downloadSource = youtube.isEmpty() && spotify.isEmpty() ? "soundcloud" : "youtube";
+    for (const auto &clip : std::as_const(m_clips)) {
+        const QFileInfo file(clip.toMap().value("path").toString());
+        const auto match = importedFile.match(file.fileName());
+        if (match.captured(1) == m_downloadSource && file.canonicalPath() == downloadDirectory && usableDownload(file)) {
+            entries += m_downloadSource.toLatin1() + ' ' + match.captured(2).toLatin1() + '\n';
+            m_downloadArchive.insert(match.captured(2), file.absoluteFilePath());
+        }
+    }
+    if (archive.write(entries) != entries.size() || !archive.flush()) {
+        m_downloadError = tr("Cannot write the download archive.");
+        emit downloadChanged();
+        return;
+    }
+    archive.close();
+
+    m_downloadDir = std::move(staging);
+    m_downloadError.clear();
+    m_downloadOutput.clear();
+    m_downloadResults.clear();
+    m_downloadProgress = -1;
+    m_downloadTrack = m_downloadTotal = 0;
+    m_downloadCanceled = m_downloadHadErrors = false;
+    m_spotifyOutput.clear();
+    m_spotifyTracks.clear();
+    m_spotifyIndex = 0;
+    m_spotifySearching = false;
+    m_download.setWorkingDirectory(m_downloadDir->path());
+    if (spotify.isEmpty()) startMediaDownload(url);
+    else fetchSpotifyMetadata(spotify);
+    emit downloadChanged();
+}
+
+void Backend::startMediaDownload(const QUrl &url) {
+    QStringList arguments{"--ignore-config", "--no-plugin-dirs", "--yes-playlist",
+        "--ignore-errors", "--no-skip-unavailable-fragments", "--download-archive", "archive.txt",
+        "--socket-timeout", "20", "--no-colors", "--no-quiet", "--newline", "--progress", "--progress-delta", "0.25",
+        "--progress-template", "download:progress:%(progress._percent_str)s",
+        "--print", "before_dl:item:%(playlist_index)s/%(n_entries)s",
+        "--print", "after_move:track:%(.{id,title,filepath})j",
+        "-f", "bestaudio", "-o", "track-%(id)s.%(ext)s"};
+    if (m_downloadSource == "youtube") {
+        arguments << "--use-extractors" << "youtube,youtube:tab,youtube:playlist"
+                  << "--match-filters" << "extractor = youtube & !is_live" << "--js-runtimes" << "node";
     } else {
-        const QDir directory(m_dataPath + "/downloads");
-        if (QDir().mkpath(directory.absolutePath())) {
-            auto staging = std::make_unique<QTemporaryDir>(directory.filePath(".import-XXXXXX"));
-            if (staging->isValid()) {
-                // Seed an import-local archive from playable entries already in the library.
-                QFile archive(staging->filePath("archive.txt"));
-                if (!archive.open(QIODevice::WriteOnly)) {
-                    m_downloadError = tr("Cannot create the download folder.");
-                    emit downloadChanged();
-                    return;
-                }
-                QByteArray entries;
-                for (const auto &clip : std::as_const(m_clips)) {
-                    const QFileInfo file(clip.toMap().value("path").toString());
-                    const auto match = soundCloudFile.match(file.fileName());
-                    if (match.hasMatch() && file.canonicalPath() == directory.canonicalPath() && usableDownload(file))
-                        entries += "soundcloud " + match.captured(1).toLatin1() + '\n';
-                }
-                if (archive.write(entries) != entries.size() || !archive.flush()) {
-                    m_downloadError = tr("Cannot create the download folder.");
-                    emit downloadChanged();
-                    return;
-                }
-                archive.close();
-                m_downloadDir = std::move(staging);
-                m_downloadError.clear();
-                m_downloadOutput.clear();
-                m_downloadResults.clear();
-                m_downloadProgress = -1;
-                m_downloadTrack = m_downloadTotal = 0;
-                m_downloadCanceled = m_downloadHadErrors = false;
-                QString extractors = "soundcloud,soundcloud:set,soundcloud:playlist";
-                if (soundCloudShortHost(url.host())) extractors += ",generic";
-                m_download.setWorkingDirectory(m_downloadDir->path());
-                m_downloadTimeout.start();
-                m_download.start(downloader, {
-                    "--ignore-config", "--no-plugin-dirs", "--no-cache-dir", "--yes-playlist",
-                    "--ignore-errors", "--no-skip-unavailable-fragments",
-                    "--download-archive", "archive.txt", "--use-extractors", extractors,
-                    "--match-filters", "extractor = soundcloud", "--socket-timeout", "20",
-                    "--no-colors", "--newline", "--progress", "--progress-delta", "0.25",
-                    "--progress-template", "download:progress:%(progress._percent_str)s",
-                    "--print", "before_dl:item:%(playlist_index)s/%(n_entries)s",
-                    "--print", "after_move:track:%(.{id,title,filepath})j",
-                    "-f", "bestaudio", "-o", "track-%(id)s.%(ext)s", "--", url.toString(QUrl::FullyEncoded)
-                });
-                emit downloadChanged();
+        const QString extractors = soundCloudShortHost(url.host())
+            ? "soundcloud,soundcloud:set,soundcloud:playlist,generic" : "soundcloud,soundcloud:set,soundcloud:playlist";
+        arguments << "--no-cache-dir" << "--use-extractors" << extractors
+                  << "--match-filters" << "extractor = soundcloud";
+    }
+    arguments << "--" << url.toString(QUrl::FullyEncoded);
+    m_downloadOutput.clear();
+    m_downloadTimeout.start();
+    m_download.start(m_downloader, arguments);
+}
+
+void Backend::fetchSpotifyMetadata(const QUrl &url, int redirects) {
+    QNetworkRequest request(url);
+    request.setAttribute(QNetworkRequest::RedirectPolicyAttribute,QNetworkRequest::ManualRedirectPolicy);
+    request.setTransferTimeout(20000);
+    auto reply = m_downloadNetwork.get(request);
+    m_spotifyReply = reply;
+    m_spotifyOutput.clear();
+    connect(reply,&QNetworkReply::readyRead,this,[this,reply] {
+        m_spotifyOutput += reply->readAll();
+        if (m_spotifyOutput.size() > 8*1024*1024) reply->abort();
+    });
+    connect(reply,&QNetworkReply::finished,this,[this,reply,redirects] {
+        m_spotifyReply = nullptr;
+        reply->deleteLater();
+        const auto redirect = reply->attribute(QNetworkRequest::RedirectionTargetAttribute).toUrl();
+        if (!m_downloadCanceled && m_downloadError.isEmpty() && redirects < 5 && !redirect.isEmpty()) {
+            const auto target = spotifyImportUrl(reply->url().resolved(redirect).toString(QUrl::FullyEncoded));
+            if (!target.isEmpty() && target != reply->url()) {
+                fetchSpotifyMetadata(target, redirects+1);
                 return;
             }
         }
-        m_downloadError = tr("Cannot create the download folder.");
+        if (!m_downloadCanceled && m_downloadError.isEmpty() && reply->error() == QNetworkReply::NoError && redirect.isEmpty())
+            m_spotifyTracks = spotifyTracks(m_spotifyOutput+reply->readAll());
+        if (m_spotifyTracks.isEmpty()) {
+            if (!m_downloadCanceled && m_downloadError.isEmpty())
+                m_downloadError = tr("Spotify did not return track information. Check that the link is public.");
+            finishDownload(false);
+            return;
+        }
+        findNextSpotifyTrack();
+    });
+    m_downloadTimeout.start();
+}
+
+void Backend::findNextSpotifyTrack() {
+    if (m_spotifyIndex >= m_spotifyTracks.size()) {
+        finishDownload(true);
+        return;
     }
+    m_spotifySearching = true;
+    m_spotifyOutput.clear();
+    m_downloadTrack = int(m_spotifyIndex+1);
+    m_downloadTotal = int(m_spotifyTracks.size());
+    m_downloadProgress = double(m_spotifyIndex)/m_spotifyTracks.size();
+    const auto &track = m_spotifyTracks.at(m_spotifyIndex);
+    m_downloadTimeout.start();
+    m_download.start(m_downloader, {"--ignore-config", "--no-plugin-dirs", "--use-extractors",
+        "youtube:search,youtube", "--flat-playlist", "--dump-single-json", "--quiet", "--no-warnings",
+        "--socket-timeout", "15", "--", "ytsearch8:" + track.artist + ' ' + track.title});
     emit downloadChanged();
+}
+
+void Backend::downloadProcessFinished(bool success) {
+    if (m_spotifyTracks.isEmpty() || m_downloadCanceled || !m_downloadError.isEmpty()) {
+        finishDownload(success);
+        return;
+    }
+    readDownloadOutput();
+    if (m_spotifySearching) {
+        m_spotifySearching = false;
+        const auto id = success ? matchingYoutubeId(m_spotifyTracks.at(m_spotifyIndex),m_spotifyOutput) : QString();
+        if (!id.isEmpty()) {
+            startMediaDownload(QUrl("https://www.youtube.com/watch?v=" + id));
+            return;
+        }
+        m_downloadHadErrors = true;
+    } else if (!success) {
+        m_downloadHadErrors = true;
+    }
+    ++m_spotifyIndex;
+    findNextSpotifyTrack();
 }
 
 void Backend::cancelDownload() {
     if (!downloading()) return;
     m_downloadCanceled = true;
-    m_download.kill();
+    if (m_spotifyReply) m_spotifyReply->abort();
+    else m_download.kill();
 }
 
 void Backend::clearDownloadError() {
     if (downloading() || m_downloadError.isEmpty()) return;
     m_downloadError.clear();
+    m_existingDownloadIndex = -1;
     emit downloadChanged();
 }
 
 void Backend::readDownloadOutput() {
-    m_downloadOutput += m_download.readAll();
     if (m_downloadTimeout.isActive()) m_downloadTimeout.start();
+    if (m_spotifySearching) {
+        m_spotifyOutput += m_download.readAll();
+        if (m_spotifyOutput.size() > 2*1024*1024) m_download.kill();
+        return;
+    }
+    m_downloadOutput += m_download.readAll();
     const auto previousProgress = m_downloadProgress;
     const auto previousCount = m_downloadResults.size();
+    static const QRegularExpression archived(R"(^\[download\] ([A-Za-z0-9_-]+): .*has already been recorded in the archive$)");
     qsizetype end;
     while ((end = m_downloadOutput.indexOf('\n')) >= 0) {
         const auto line = m_downloadOutput.left(end).trimmed();
         m_downloadOutput.remove(0, end+1);
         if (line.startsWith("ERROR:")) m_downloadHadErrors = true;
         if (line.startsWith("track:")) m_downloadResults.append(line.mid(6));
-        if (line.startsWith("item:")) {
+        if (m_existingDownloadPath.isEmpty() && line.startsWith("[download]")) {
+            const auto match = archived.match(QString::fromUtf8(line));
+            if (match.hasMatch()) m_existingDownloadPath = m_downloadArchive.value(match.captured(1));
+        }
+        if (line.startsWith("item:") && m_spotifyTracks.isEmpty()) {
             const auto position = line.mid(5).split('/');
             m_downloadTrack = position.value(0).toInt();
             m_downloadTotal = position.value(1).toInt();
@@ -491,9 +612,21 @@ void Backend::finishDownload(bool success) {
         if (index >= 0 && (!success || m_downloadHadErrors))
             m_downloadError = tr("Added available tracks. Some tracks could not be downloaded.");
         else if (index < 0 && (!success || m_downloadHadErrors))
-            m_downloadError = tr("Could not import audio from this SoundCloud link.");
-        else if (index < 0)
-            m_downloadError = tr("No new SoundCloud tracks to add.");
+            m_downloadError = m_spotifyTracks.isEmpty() ? tr("Could not import audio from this link.")
+                                                       : tr("No matching YouTube audio could be downloaded for this Spotify link.");
+        else if (index < 0) {
+            if (!m_existingDownloadPath.isEmpty()) {
+                for (qsizetype row = 0; row < m_clips.size(); ++row) {
+                    if (m_clips.at(row).toMap().value("path").toString() == m_existingDownloadPath) {
+                        m_existingDownloadIndex = int(row);
+                        break;
+                    }
+                }
+            }
+            m_downloadError = m_existingDownloadIndex >= 0
+                ? tr("The audio from this link is already in your library.")
+                : tr("No downloadable tracks were found for this link.");
+        }
     }
     m_downloadDir.reset();
     emit downloadChanged();
@@ -510,15 +643,15 @@ int Backend::addDownloadedTracks() {
     for (qsizetype i = 0; i < m_clips.size(); ++i) {
         const QFileInfo file(m_clips.at(i).toMap().value("path").toString());
         libraryRows.insert(file.absoluteFilePath(), i);
-        const auto match = soundCloudFile.match(file.fileName());
-        if (match.hasMatch() && file.canonicalPath() == directory.path() && usableDownload(file))
-            importedIds.insert(match.captured(1));
+        const auto match = importedFile.match(file.fileName());
+        if (match.captured(1) == m_downloadSource && file.canonicalPath() == directory.path() && usableDownload(file))
+            importedIds.insert(match.captured(2));
     }
 
     const auto previous = m_clips;
     QStringList addedFiles;
     int first = -1;
-    static const QRegularExpression validId("^[0-9]{1,20}$");
+    const QRegularExpression validId(m_downloadSource == "youtube" ? "^[A-Za-z0-9_-]{11}$" : "^[0-9]{1,20}$");
     static const QRegularExpression extension("^[a-zA-Z0-9]+$");
     for (const auto &result : std::as_const(m_downloadResults)) {
         const auto track = QJsonDocument::fromJson(result).object();
@@ -533,7 +666,7 @@ int Backend::addDownloadedTracks() {
         }
         if (importedIds.contains(id)) continue;
 
-        const auto path = directory.filePath("soundcloud-" + id + "." + audio.suffix());
+        const auto path = directory.filePath(m_downloadSource + '-' + id + '.' + audio.suffix());
         const QFileInfo destination(path);
         if (!usableDownload(destination)) {
             if (destination.exists() || destination.isSymLink() || !QFile::rename(audio.absoluteFilePath(), path)) {
